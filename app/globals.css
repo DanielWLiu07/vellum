@@ -91,6 +91,11 @@ h3 {
   border-color: rgba(255, 255, 255, 0.5);
 }
 
+.vellum-btn-active {
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
 .vellum-btn:disabled {
   opacity: 0.4;
   cursor: default;

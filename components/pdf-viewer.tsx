@@ -25,9 +25,12 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
   const [page, setPage] = useState(1);
   const [scale, setScale] = useState(1.2);
   const [mode, setMode] = useState<Mode>("scroll");
+  const [fitWidth, setFitWidth] = useState(true);
+  const [isFull, setIsFull] = useState(false);
 
   const docRef = useRef<PdfDoc | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   // ---- Load: read token from the URL fragment, fetch bytes via the proxy. ----
   useEffect(() => {
@@ -112,6 +115,19 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
         if (k === "arrowright" || k === " ") setPage((p) => Math.min(numPages, p + 1));
         if (k === "arrowleft") setPage((p) => Math.max(1, p - 1));
       }
+      if (e.metaKey || e.ctrlKey) return;
+      if (k === "f") {
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else void rootRef.current?.requestFullscreen?.();
+      }
+      if (k === "+" || k === "=") {
+        setFitWidth(false);
+        setScale((s) => Math.min(MAX_SCALE, +(s + 0.2).toFixed(2)));
+      }
+      if (k === "-" || k === "_") {
+        setFitWidth(false);
+        setScale((s) => Math.max(MIN_SCALE, +(s - 0.2).toFixed(2)));
+      }
     };
     document.addEventListener("contextmenu", onContext);
     document.addEventListener("keydown", onKey);
@@ -120,6 +136,47 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
       document.removeEventListener("keydown", onKey);
     };
   }, [claims, mode, numPages]);
+
+  // ---- Fit-to-width: derive scale from the container + first page's native
+  // width, recomputed on load and on resize while fit mode is on. ----
+  useEffect(() => {
+    if (status !== "ready" || !fitWidth) return;
+    let cancelled = false;
+    const recompute = async () => {
+      const doc = docRef.current;
+      const container = containerRef.current;
+      if (!doc || !container) return;
+      const native = (await doc.getPage(1)).getViewport({ scale: 1 }).width;
+      const avail = container.clientWidth - 56; // matches .vellum-scroll padding
+      if (cancelled || native <= 0 || avail <= 0) return;
+      setScale(Math.min(MAX_SCALE, Math.max(0.25, +(avail / native).toFixed(3))));
+    };
+    void recompute();
+    const onResize = () => void recompute();
+    window.addEventListener("resize", onResize);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("resize", onResize);
+    };
+  }, [status, fitWidth]);
+
+  // ---- Fullscreen state mirror. ----
+  useEffect(() => {
+    const onChange = () => setIsFull(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFull = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void rootRef.current?.requestFullscreen?.();
+  };
+
+  // Explicit zoom turns off fit mode so the user's choice sticks across resizes.
+  const zoom = (delta: number) => {
+    setFitWidth(false);
+    setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, +(s + delta).toFixed(2))));
+  };
 
   if (status === "error") {
     return (
@@ -135,7 +192,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
   const allowCopy = claims?.perms?.copy ?? false;
 
   return (
-    <div className={`vellum-root${allowCopy ? "" : " vellum-noselect"}`}>
+    <div ref={rootRef} className={`vellum-root${allowCopy ? "" : " vellum-noselect"}`}>
       <Toolbar
         mode={mode}
         setMode={setMode}
@@ -143,7 +200,11 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
         numPages={numPages}
         setPage={setPage}
         scale={scale}
-        setScale={setScale}
+        zoom={zoom}
+        fitWidth={fitWidth}
+        toggleFitWidth={() => setFitWidth((f) => !f)}
+        isFull={isFull}
+        toggleFull={toggleFull}
         loading={status === "loading"}
       />
       <div className="vellum-scroll" ref={containerRef} aria-busy={status === "loading"} />
@@ -163,10 +224,14 @@ function Toolbar(props: {
   numPages: number;
   setPage: (fn: (p: number) => number) => void;
   scale: number;
-  setScale: (fn: (s: number) => number) => void;
+  zoom: (delta: number) => void;
+  fitWidth: boolean;
+  toggleFitWidth: () => void;
+  isFull: boolean;
+  toggleFull: () => void;
   loading: boolean;
 }) {
-  const { mode, setMode, page, numPages, setPage, scale, setScale, loading } = props;
+  const { mode, setMode, page, numPages, setPage, scale, zoom, fitWidth, toggleFitWidth, isFull, toggleFull, loading } = props;
   return (
     <div className="vellum-toolbar">
       <div className="vellum-toolbar-group">
@@ -208,7 +273,7 @@ function Toolbar(props: {
         <button
           type="button"
           className="vellum-btn"
-          onClick={() => setScale((s) => Math.max(MIN_SCALE, +(s - 0.2).toFixed(2)))}
+          onClick={() => zoom(-0.2)}
           disabled={loading}
           aria-label="Zoom out"
         >
@@ -218,11 +283,31 @@ function Toolbar(props: {
         <button
           type="button"
           className="vellum-btn"
-          onClick={() => setScale((s) => Math.min(MAX_SCALE, +(s + 0.2).toFixed(2)))}
+          onClick={() => zoom(0.2)}
           disabled={loading}
           aria-label="Zoom in"
         >
           +
+        </button>
+        <button
+          type="button"
+          className={`vellum-btn${fitWidth ? " vellum-btn-active" : ""}`}
+          onClick={toggleFitWidth}
+          disabled={loading}
+          aria-pressed={fitWidth}
+        >
+          Fit width
+        </button>
+      </div>
+      <div className="vellum-toolbar-group">
+        <button
+          type="button"
+          className="vellum-btn"
+          onClick={toggleFull}
+          disabled={loading}
+          aria-label={isFull ? "Exit full screen" : "Full screen"}
+        >
+          {isFull ? "Exit full screen" : "Full screen"}
         </button>
       </div>
     </div>
