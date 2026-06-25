@@ -1,0 +1,47 @@
+{
+  "name": "vellum",
+  "version": "0.1.0",
+  "private": false,
+  "description": "A stateless, zero-knowledge secure document viewer microservice. HMAC capability tokens, server-side proxying, client-side pdf.js rendering with per-user watermarking and download prevention.",
+  "license": "MIT",
+  "author": "Daniel W Liu",
+  "homepage": "https://github.com/DanielWLiu07/vellum",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DanielWLiu07/vellum.git"
+  },
+  "keywords": [
+    "pdf",
+    "viewer",
+    "microservice",
+    "watermark",
+    "drm",
+    "pdfjs",
+    "secure-document",
+    "capability-token",
+    "nextjs"
+  ],
+  "scripts": {
+    "predev": "node scripts/copy-pdf-worker.mjs",
+    "dev": "next dev",
+    "prebuild": "node scripts/copy-pdf-worker.mjs",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "next": "^16.2.9",
+    "pdfjs-dist": "4.10.38",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.5",
+    "@types/react": "19.1.0",
+    "@types/react-dom": "19.1.0",
+    "typescript": "5.7.3",
+    "vitest": "^4.1.9"
+  }
+}
