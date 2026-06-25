@@ -233,9 +233,9 @@ function Toolbar(props: {
 // screenshots and can't be removed by deleting a DOM node.
 function stampWatermark(ctx: CanvasRenderingContext2D, w: number, h: number, text: string) {
   ctx.save();
-  ctx.globalAlpha = 0.16;
-  ctx.fillStyle = "#6b7280";
-  ctx.font = `${Math.max(14, Math.round(w / 38))}px system-ui, sans-serif`;
+  ctx.globalAlpha = 0.12;
+  ctx.fillStyle = "#126289";
+  ctx.font = `${Math.max(14, Math.round(w / 38))}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.translate(w / 2, h / 2);

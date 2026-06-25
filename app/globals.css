@@ -1,11 +1,22 @@
 :root {
-  --bg: #0f1115;
-  --panel: #181b22;
-  --panel-2: #20242d;
-  --border: #2a2f3a;
-  --text: #e7e9ee;
-  --muted: #9aa3b2;
-  --accent: #6366f1;
+  /* Institutional palette: deep teal primary, warm tan neutral, maroon accent. */
+  --teal: #126289;
+  --teal-deep: #0e4d6b;
+  --tan: #d0bba6;
+  --tan-soft: #ece3d7;
+  --maroon: #841619;
+  --maroon-deep: #6d1216;
+
+  --bg: #f7f3ee;
+  --surface: #ffffff;
+  --backdrop: #ece3d7;
+  --border: #e2d8ca;
+  --ink: #1f2a30;
+  --ink-soft: #5c6a72;
+  --on-teal: #eaf2f6;
+
+  --font-body-stack: var(--font-body), "PT Sans", Tahoma, ui-sans-serif, system-ui, sans-serif;
+  --font-head-stack: var(--font-heading), var(--font-body), ui-sans-serif, system-ui, sans-serif;
 }
 
 * {
@@ -18,8 +29,15 @@ body {
   padding: 0;
   height: 100%;
   background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  font-family: var(--font-body-stack);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-head-stack);
+  letter-spacing: -0.01em;
 }
 
 /* ----------------------------------------------------------------- viewer */
@@ -28,7 +46,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: var(--bg);
+  background: var(--backdrop);
 }
 
 .vellum-noselect {
@@ -40,9 +58,10 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 8px 14px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
+  padding: 9px 16px;
+  background: var(--teal);
+  color: var(--on-teal);
+  border-bottom: 2px solid var(--maroon);
   flex: 0 0 auto;
   z-index: 2;
 }
@@ -55,19 +74,21 @@ body {
 
 .vellum-btn {
   appearance: none;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--on-teal);
   border-radius: 8px;
-  padding: 6px 12px;
+  padding: 6px 13px;
   font-size: 13px;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .vellum-btn:hover:not(:disabled) {
-  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .vellum-btn:disabled {
@@ -78,7 +99,8 @@ body {
 .vellum-pageno,
 .vellum-zoom {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--on-teal);
+  opacity: 0.85;
   min-width: 56px;
   text-align: center;
 }
@@ -89,17 +111,16 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 24px;
+  gap: 18px;
+  padding: 28px;
 }
 
 .vellum-page {
   max-width: 100%;
   height: auto;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-  border-radius: 2px;
+  box-shadow: 0 8px 28px rgba(18, 98, 137, 0.18);
+  border-radius: 3px;
   background: #fff;
-  /* Block the long-press "save image" affordance on touch devices. */
   -webkit-touch-callout: none;
   pointer-events: none;
 }
@@ -116,24 +137,28 @@ body {
 }
 
 .vellum-state-card {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-top: 3px solid var(--maroon);
+  border-radius: 14px;
   padding: 28px 32px;
   max-width: 420px;
   text-align: center;
+  box-shadow: 0 10px 30px rgba(18, 98, 137, 0.12);
   pointer-events: auto;
 }
 
 .vellum-state-title {
-  font-size: 16px;
+  font-family: var(--font-head-stack);
+  font-size: 17px;
   font-weight: 600;
+  color: var(--teal);
   margin: 0 0 8px;
 }
 
 .vellum-state-msg {
   font-size: 14px;
-  color: var(--muted);
+  color: var(--ink-soft);
   margin: 0;
   line-height: 1.5;
 }
@@ -141,8 +166,8 @@ body {
 .vellum-spinner {
   width: 36px;
   height: 36px;
-  border: 3px solid var(--border);
-  border-top-color: var(--accent);
+  border: 3px solid var(--tan);
+  border-top-color: var(--maroon);
   border-radius: 50%;
   animation: vellum-spin 0.8s linear infinite;
 }
@@ -162,36 +187,38 @@ body {
 }
 
 .landing h1 {
-  font-size: 40px;
+  font-size: 44px;
   margin: 0 0 8px;
-  letter-spacing: -0.02em;
+  color: var(--teal);
 }
 
 .landing .tagline {
   font-size: 18px;
-  color: var(--muted);
+  color: var(--ink-soft);
   margin: 0 0 32px;
+  line-height: 1.5;
 }
 
 .landing h2 {
-  font-size: 20px;
-  margin: 40px 0 12px;
+  font-size: 21px;
+  margin: 44px 0 12px;
+  color: var(--teal);
 }
 
 .landing p,
 .landing li {
-  color: var(--muted);
-  line-height: 1.65;
+  color: var(--ink);
+  line-height: 1.7;
   font-size: 15px;
 }
 
 .landing code {
-  background: var(--panel-2);
+  background: var(--tan-soft);
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 1px 6px;
   font-size: 13px;
-  color: var(--text);
+  color: var(--maroon-deep);
 }
 
 .landing .row {
@@ -203,38 +230,52 @@ body {
 
 .landing .cta {
   display: inline-block;
-  background: var(--accent);
+  background: var(--maroon);
   color: #fff;
   border: none;
   border-radius: 10px;
-  padding: 12px 20px;
+  padding: 12px 22px;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
   text-decoration: none;
+  transition: background 0.15s;
+}
+
+.landing .cta:hover {
+  background: var(--maroon-deep);
 }
 
 .landing .cta.secondary {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--teal);
+  color: var(--teal);
+}
+
+.landing .cta.secondary:hover {
+  background: var(--tan-soft);
 }
 
 .landing .demo-frame {
   width: 100%;
   height: 640px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   margin-top: 16px;
-  background: var(--panel);
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(18, 98, 137, 0.1);
 }
 
 .landing .pill {
   display: inline-block;
   font-size: 12px;
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--maroon);
+  background: var(--surface);
+  border: 1px solid var(--tan);
   border-radius: 999px;
-  padding: 2px 10px;
+  padding: 4px 12px;
   margin-bottom: 20px;
 }
