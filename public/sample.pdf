@@ -1,0 +1,136 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R 11 0 R 13 0 R] /Count 5 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 207 >>
+stream
+BT
+/F1 28 Tf
+72 720 Td
+(Vellum) Tj
+/F1 14 Tf
+0 -36 Td
+(Secure document viewer) Tj
+0 -22 Td
+(This is a demo document rendered to canvas,) Tj
+0 -22 Td
+(watermarked, and locked against download.) Tj
+0 -22 Td
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 228 >>
+stream
+BT
+/F1 28 Tf
+72 720 Td
+(Capability tokens) Tj
+/F1 14 Tf
+0 -36 Td
+(The host app signs a short-lived token.) Tj
+0 -22 Td
+(It carries a presigned source URL,) Tj
+0 -22 Td
+(watermark text, permissions, and an expiry.) Tj
+0 -22 Td
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 231 >>
+stream
+BT
+/F1 28 Tf
+72 720 Td
+(Zero-knowledge proxy) Tj
+/F1 14 Tf
+0 -36 Td
+(The viewer holds no database and no) Tj
+0 -22 Td
+(storage credentials. It trusts a request) Tj
+0 -22 Td
+(only because the HMAC signature verifies.) Tj
+0 -22 Td
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 218 >>
+stream
+BT
+/F1 28 Tf
+72 720 Td
+(Watermarking) Tj
+/F1 14 Tf
+0 -36 Td
+(Every page is stamped with the viewer's) Tj
+0 -22 Td
+(identity, baked into the pixels so it) Tj
+0 -22 Td
+(survives screenshots and DOM edits.) Tj
+0 -22 Td
+ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 10 0 R >>
+endobj
+12 0 obj
+<< /Length 222 >>
+stream
+BT
+/F1 28 Tf
+72 720 Td
+(Slideshow mode) Tj
+/F1 14 Tf
+0 -36 Td
+(Use the toolbar to switch views, or the) Tj
+0 -22 Td
+(arrow keys to move between slides.) Tj
+0 -22 Td
+(Right-click and Ctrl/Cmd+S are disabled.) Tj
+0 -22 Td
+ET
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 12 0 R >>
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000141 00000 n 
+0000000211 00000 n 
+0000000469 00000 n 
+0000000595 00000 n 
+0000000874 00000 n 
+0000001000 00000 n 
+0000001282 00000 n 
+0000001408 00000 n 
+0000001678 00000 n 
+0000001806 00000 n 
+0000002080 00000 n 
+trailer
+<< /Size 14 /Root 1 0 R >>
+startxref
+2208
+%%EOF
