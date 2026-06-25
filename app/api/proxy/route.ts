@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
+import { isAllowedSource } from "@/lib/source-guard";
 import { verifyToken } from "@/lib/token";
 
 export const runtime = "nodejs";
@@ -41,6 +42,12 @@ export async function POST(req: NextRequest) {
   }
 
   const { src } = result.claims;
+
+  // SSRF guard (defense-in-depth behind the HMAC): refuse non-http(s) and
+  // private/internal hosts unless the source is the service's own origin.
+  if (!isAllowedSource(src, req.nextUrl.host)) {
+    return NextResponse.json({ error: "blocked_source" }, { status: 403 });
+  }
 
   let upstream: Response;
   try {
