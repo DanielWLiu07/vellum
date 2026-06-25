@@ -4,6 +4,8 @@
 
 Embed gated PDFs in any app with per-user watermarking and download prevention — without handing the viewer your database, your storage credentials, or your users. Vellum serves exactly one document, to one holder of one signed token, for a few minutes, and nothing else.
 
+[![CI](https://github.com/DanielWLiu07/vellum/actions/workflows/ci.yml/badge.svg)](https://github.com/DanielWLiu07/vellum/actions/workflows/ci.yml)
+
 `Next.js 16` · `pdf.js` · `HMAC capability tokens` · `MIT`
 
 ---
@@ -69,6 +71,7 @@ The result deters casual copying and makes redistribution *accountable*, which f
 | Source URL lifted from network tab | Document is proxy-fetched server-side; `src` never sent to browser |
 | Token leaked via logs / `Referer` | Token travels in the URL **fragment**, not the query/path |
 | Viewer compromise | Stateless — no DB, no storage keys; blast radius is one live doc |
+| SSRF via a leaked secret (token `src` → internal host) | Proxy refuses non-http(s) and private/loopback/link-local hosts (defense-in-depth behind the HMAC) |
 | Clickjacking / unwanted embedding | `Content-Security-Policy: frame-ancestors` allowlist on `/embed` |
 | Mass link invalidation needed | Rotate the shared secret — all outstanding tokens die instantly |
 | Leaked screenshot redistributed | Per-user watermark baked into page pixels (survives DOM edits) |
