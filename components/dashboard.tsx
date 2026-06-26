@@ -2,6 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  ADMIN_STATS,
+  ADMIN_USERS,
+  ADVISOR_TRAINERS,
+  ROLES,
+  STUDENT_ASSIGNMENTS,
+  TRAINER_ROSTER,
+  type AdminUser,
+  type Role,
+} from "@/lib/demo-data";
+
 interface Doc {
   id: string;
   name: string;
@@ -10,191 +21,259 @@ interface Doc {
   bundled: boolean;
 }
 
-interface ShareOpts {
-  watermark: string;
-  download: boolean;
-  print: boolean;
-  slides: boolean;
-  ttlMinutes: number;
-}
-
-const DEFAULT_OPTS: ShareOpts = { watermark: "", download: false, print: false, slides: false, ttlMinutes: 15 };
-
 export function Dashboard() {
+  const [role, setRole] = useState<Role>("student");
   const [docs, setDocs] = useState<Doc[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [viewer, setViewer] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [selected, setSelected] = useState<{ id: string; url: string } | null>(null);
-  const [shareFor, setShareFor] = useState<string | null>(null);
-  const [opts, setOpts] = useState<ShareOpts>(DEFAULT_OPTS);
-  const [copied, setCopied] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
-    try {
-      const res = await fetch("/api/docs", { cache: "no-store" });
-      if (!res.ok) throw new Error("Dashboard is disabled on this deployment.");
-      setDocs((await res.json()).docs);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load.");
-    } finally {
-      setLoading(false);
-    }
+    const res = await fetch("/api/docs", { cache: "no-store" }).catch(() => null);
+    if (res?.ok) setDocs((await res.json()).docs);
   }, []);
+  useEffect(() => void refresh(), [refresh]);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const view = useCallback(async (docId: string, watermark = "") => {
+    const res = await fetch("/api/share", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: docId, watermark, ttlMinutes: 15 }),
+    });
+    if (res.ok) setViewer((await res.json()).embedUrl);
+  }, []);
 
   const onUpload = async (file: File) => {
     setUploading(true);
-    setErr(null);
     try {
       const fd = new FormData();
       fd.set("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(uploadError(e?.error));
-      }
+      await fetch("/api/upload", { method: "POST", body: fd });
       await refresh();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Upload failed.");
     } finally {
       setUploading(false);
     }
   };
 
-  const mintShare = async (id: string, o: ShareOpts): Promise<string | null> => {
-    const res = await fetch("/api/share", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, watermark: o.watermark, download: o.download, print: o.print, mode: o.slides ? "slides" : "scroll", ttlMinutes: o.ttlMinutes }),
-    });
-    if (!res.ok) return null;
-    return (await res.json()).embedUrl as string;
-  };
-
-  const onView = async (id: string) => {
-    const url = await mintShare(id, DEFAULT_OPTS);
-    if (url) setSelected({ id, url });
-  };
-
-  const onCopyLink = async () => {
-    if (!shareFor) return;
-    const url = await mintShare(shareFor, opts);
-    if (!url) return;
-    const full = `${window.location.origin}${url}`;
-    await navigator.clipboard.writeText(full).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
+  const active = ROLES.find((r) => r.id === role)!;
 
   return (
     <div className="dash">
-      <header className="dash-head">
-        <div>
-          <h1>Documents</h1>
-          <p className="dash-sub">
-            Upload a PDF, generate a watermarked, expiring share link, and view it locked-down — the
-            same capability-token flow a host app would drive.
-          </p>
-        </div>
-        <button className="cta" disabled={uploading} onClick={() => fileRef.current?.click()}>
-          {uploading ? "Uploading…" : "Upload PDF"}
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/pdf"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) void onUpload(f);
-          }}
-        />
-      </header>
-
-      {err && <p className="dash-err">{err}</p>}
-
-      <div className="dash-grid">
-        <section className="dash-list">
-          {loading ? (
-            <p className="dash-muted">Loading…</p>
-          ) : docs.length === 0 ? (
-            <p className="dash-muted">No documents yet — upload one to start.</p>
-          ) : (
-            <ul>
-              {docs.map((d) => (
-                <li key={d.id} className={selected?.id === d.id ? "dash-item is-active" : "dash-item"}>
-                  <div className="dash-item-main">
-                    <span className="dash-item-name">{d.name}</span>
-                    <span className="dash-item-meta">
-                      {d.bundled ? "Sample" : "Uploaded"} · {(d.sizeBytes / 1024).toFixed(0)} KB
-                    </span>
-                  </div>
-                  <div className="dash-item-actions">
-                    <button className="btn" onClick={() => void onView(d.id)}>View</button>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        setShareFor(d.id);
-                        setOpts({ ...DEFAULT_OPTS, watermark: "" });
-                        setCopied(false);
-                      }}
-                    >
-                      Share…
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="dash-viewer">
-          {selected ? (
-            <iframe key={selected.url} className="dash-frame" src={selected.url} title="Document viewer" sandbox="allow-scripts allow-same-origin" />
-          ) : (
-            <div className="dash-empty">Select <strong>View</strong> on a document to open it here.</div>
-          )}
-        </section>
+      <div className="role-switch" role="tablist" aria-label="Viewing as">
+        <span className="role-switch-label">Viewing as</span>
+        {ROLES.map((r) => (
+          <button
+            key={r.id}
+            role="tab"
+            aria-selected={role === r.id}
+            className={role === r.id ? "role-chip is-active" : "role-chip"}
+            onClick={() => { setRole(r.id); setViewer(null); }}
+          >
+            {r.label}
+          </button>
+        ))}
       </div>
+      <p className="dash-sub" style={{ marginBottom: 24 }}>{active.blurb}</p>
 
-      {shareFor && (
-        <div className="dash-modal-backdrop" onClick={() => setShareFor(null)}>
-          <div className="dash-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Create a secure link</h2>
-            <p className="dash-muted">The link carries a signed token — it expires and can&rsquo;t be tweaked.</p>
-            <label className="dash-field">
-              <span>Watermark (per-recipient)</span>
-              <input value={opts.watermark} placeholder="e.g. Daniel Liu • confidential" onChange={(e) => setOpts({ ...opts, watermark: e.target.value })} />
-            </label>
-            <label className="dash-field">
-              <span>Expires in (minutes)</span>
-              <input type="number" min={1} max={60} value={opts.ttlMinutes} onChange={(e) => setOpts({ ...opts, ttlMinutes: Number(e.target.value) })} />
-            </label>
-            <div className="dash-checks">
-              <label><input type="checkbox" checked={opts.download} onChange={(e) => setOpts({ ...opts, download: e.target.checked })} /> Allow download</label>
-              <label><input type="checkbox" checked={opts.print} onChange={(e) => setOpts({ ...opts, print: e.target.checked })} /> Allow print</label>
-              <label><input type="checkbox" checked={opts.slides} onChange={(e) => setOpts({ ...opts, slides: e.target.checked })} /> Slideshow mode</label>
-            </div>
-            <div className="dash-modal-actions">
-              <button className="cta secondary" onClick={() => setShareFor(null)}>Close</button>
-              <button className="cta" onClick={onCopyLink}>{copied ? "Copied ✓" : "Copy share link"}</button>
-            </div>
+      {role === "student" && <StudentView onView={view} />}
+      {role === "trainer" && (
+        <TrainerView docs={docs} onView={view} onUploadClick={() => fileRef.current?.click()} uploading={uploading} />
+      )}
+      {role === "advisor" && <AdvisorView docs={docs} onView={view} />}
+      {role === "admin" && (
+        <AdminView docs={docs} onView={view} onUploadClick={() => fileRef.current?.click()} uploading={uploading} />
+      )}
+
+      {viewer && (
+        <div className="viewer-modal-backdrop" onClick={() => setViewer(null)}>
+          <div className="viewer-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="viewer-close" onClick={() => setViewer(null)} aria-label="Close">✕</button>
+            <iframe key={viewer} className="viewer-modal-frame" src={viewer} title="Lesson viewer" sandbox="allow-scripts allow-same-origin" />
           </div>
         </div>
       )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/pdf"
+        hidden
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void onUpload(f); }}
+      />
     </div>
   );
 }
 
-function uploadError(code?: string): string {
-  if (code === "too_large") return "That file is too large (25 MB max).";
-  if (code === "not_pdf") return "Only PDF files are supported.";
-  if (code === "dashboard_disabled") return "The dashboard is disabled on this deployment.";
-  return "Upload failed. Try again.";
+// ---- shared bits ----------------------------------------------------------
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, [string, string]> = {
+    done: ["Done", "ok"],
+    in_progress: ["In progress", "warn"],
+    not_started: ["Not started", "muted"],
+  };
+  const [label, tone] = map[status] ?? [status, "muted"];
+  return <span className={`badge badge-${tone}`}>{label}</span>;
+}
+
+function ProgressBar({ value }: { value: number }) {
+  return (
+    <div className="bar" aria-label={`${value}%`}>
+      <div className="bar-fill" style={{ width: `${value}%` }} />
+    </div>
+  );
+}
+
+function LessonCard({ title, sub, badge, action }: { title: string; sub: string; badge?: React.ReactNode; action: React.ReactNode }) {
+  return (
+    <div className="lesson-card">
+      <div className="lesson-icon" aria-hidden>▤</div>
+      <div className="lesson-body">
+        <p className="lesson-title">{title}</p>
+        <p className="lesson-sub">{sub}</p>
+      </div>
+      <div className="lesson-end">
+        {badge}
+        {action}
+      </div>
+    </div>
+  );
+}
+
+// ---- role views -----------------------------------------------------------
+
+function StudentView({ onView }: { onView: (id: string) => void }) {
+  const done = STUDENT_ASSIGNMENTS.filter((a) => a.status === "done").length;
+  return (
+    <section className="role-section">
+      <div className="section-head">
+        <h2>Assigned to you</h2>
+        <span className="section-count">{done}/{STUDENT_ASSIGNMENTS.length} done</span>
+      </div>
+      <div className="lesson-grid">
+        {STUDENT_ASSIGNMENTS.map((a) => (
+          <LessonCard
+            key={a.id}
+            title={a.title}
+            sub={`${a.kind === "quiz" ? "Quiz" : "Lesson"} · from ${a.from}${a.due ? ` · due ${a.due}` : ""}`}
+            badge={<StatusBadge status={a.status} />}
+            action={
+              a.kind === "document" && a.docId ? (
+                <button className="btn primary" onClick={() => onView(a.docId!)}>Open</button>
+              ) : (
+                <button className="btn">{a.status === "done" ? "Review" : "Start"}</button>
+              )
+            }
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DocManager({ docs, onView, onUploadClick, uploading, heading }: {
+  docs: Doc[]; onView: (id: string, wm?: string) => void; onUploadClick: () => void; uploading: boolean; heading: string;
+}) {
+  return (
+    <section className="role-section">
+      <div className="section-head">
+        <h2>{heading}</h2>
+        <button className="cta" disabled={uploading} onClick={onUploadClick}>{uploading ? "Uploading…" : "Upload PDF"}</button>
+      </div>
+      <div className="lesson-grid">
+        {docs.map((d) => (
+          <LessonCard
+            key={d.id}
+            title={d.name}
+            sub={`${d.bundled ? "Sample" : "Uploaded"} · ${(d.sizeBytes / 1024).toFixed(0)} KB`}
+            action={<button className="btn primary" onClick={() => onView(d.id)}>View</button>}
+          />
+        ))}
+        {docs.length === 0 && <p className="dash-muted">No documents yet — upload one.</p>}
+      </div>
+    </section>
+  );
+}
+
+function TrainerView({ docs, onView, onUploadClick, uploading }: { docs: Doc[]; onView: (id: string, wm?: string) => void; onUploadClick: () => void; uploading: boolean }) {
+  return (
+    <>
+      <DocManager docs={docs} onView={onView} onUploadClick={onUploadClick} uploading={uploading} heading="My lessons" />
+      <section className="role-section">
+        <div className="section-head"><h2>My group</h2><span className="section-count">{TRAINER_ROSTER.length} members</span></div>
+        <div className="table-card">
+          {TRAINER_ROSTER.map((m) => (
+            <div key={m.id} className="member-row">
+              <div className="member-id">
+                <span className="avatar">{m.name.split(" ").map((p) => p[0]).join("")}</span>
+                <div><p className="member-name">{m.name}</p><p className="member-email">{m.email}</p></div>
+              </div>
+              <div className="member-progress">
+                <ProgressBar value={Math.round((m.done / m.assigned) * 100)} />
+                <span className="member-frac">{m.done}/{m.assigned}</span>
+              </div>
+              <button className="btn">Assign…</button>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function AdvisorView({ docs, onView }: { docs: Doc[]; onView: (id: string, wm?: string) => void }) {
+  return (
+    <>
+      <section className="role-section">
+        <div className="section-head"><h2>My chapter — trainers</h2><span className="section-count">{ADVISOR_TRAINERS.length} trainers</span></div>
+        <div className="table-card">
+          {ADVISOR_TRAINERS.map((t) => (
+            <div key={t.id} className="member-row">
+              <div className="member-id">
+                <span className="avatar">{t.name.split(" ").map((p) => p[0]).join("")}</span>
+                <div><p className="member-name">{t.name}</p><p className="member-email">{t.members} members</p></div>
+              </div>
+              <div className="member-progress"><ProgressBar value={t.completion} /><span className="member-frac">{t.completion}%</span></div>
+              <button className="btn">Manage</button>
+            </div>
+          ))}
+        </div>
+      </section>
+      <DocManager docs={docs} onView={onView} onUploadClick={() => {}} uploading={false} heading="Chapter lessons" />
+    </>
+  );
+}
+
+function AdminView({ docs, onView, onUploadClick, uploading }: { docs: Doc[]; onView: (id: string, wm?: string) => void; onUploadClick: () => void; uploading: boolean }) {
+  const [users, setUsers] = useState<AdminUser[]>(ADMIN_USERS);
+  return (
+    <>
+      <div className="stat-grid">
+        {ADMIN_STATS.map((s) => (
+          <div key={s.label} className="stat-card"><p className="stat-value">{s.value}</p><p className="stat-label">{s.label}</p></div>
+        ))}
+      </div>
+      <section className="role-section">
+        <div className="section-head"><h2>All users</h2><span className="section-count">manage roles</span></div>
+        <div className="table-card">
+          {users.map((u) => (
+            <div key={u.id} className="member-row">
+              <div className="member-id">
+                <span className="avatar">{u.name.split(" ").map((p) => p[0]).join("")}</span>
+                <div><p className="member-name">{u.name}</p><p className="member-email">{u.email}</p></div>
+              </div>
+              <select
+                className="role-select"
+                value={u.role}
+                onChange={(e) => setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, role: e.target.value as Role } : x)))}
+              >
+                {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      </section>
+      <DocManager docs={docs} onView={onView} onUploadClick={onUploadClick} uploading={uploading} heading="All documents" />
+    </>
+  );
 }
