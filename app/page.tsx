@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Demo } from "@/components/demo";
 
 export default function Home() {
@@ -11,13 +13,26 @@ export default function Home() {
         watermarking and download prevention — without handing the viewer your data or your keys.
       </p>
 
+      {demoEnabled && (
+        <div className="row">
+          <Link href="/dashboard" className="cta">Open the dashboard →</Link>
+          <a href="#how" className="cta secondary">How it works</a>
+        </div>
+      )}
+
+      <p style={{ marginTop: 8, color: "var(--ink-soft)", fontSize: 14 }}>
+        Two ways to use it: a standalone <Link href="/dashboard" style={{ color: "var(--maroon)" }}>dashboard</Link>{" "}
+        to upload, manage, and securely share your own documents — or an <em>embedded</em> stateless
+        viewer a host app drives with signed tokens (the demo below).
+      </p>
+
       {demoEnabled ? (
         <Demo />
       ) : (
         <p>The live demo is disabled on this deployment.</p>
       )}
 
-      <h2>How it works</h2>
+      <h2 id="how">How it works</h2>
       <ol>
         <li>
           Your app presigns a short-lived URL for the document and wraps it in an HMAC-signed{" "}
