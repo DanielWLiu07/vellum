@@ -76,6 +76,18 @@ The result deters casual copying and makes redistribution *accountable*, which f
 | Mass link invalidation needed | Rotate the shared secret — all outstanding tokens die instantly |
 | Leaked screenshot redistributed | Per-user watermark baked into page pixels (survives DOM edits) |
 
+## Viewer controls
+
+- **Scroll** and **slideshow** modes (the host can default to slides via `&mode=slides`).
+- **Fit-to-width** (default, recomputed on resize) and **zoom** in/out.
+- **Full screen**.
+- **Download** / **Print** buttons appear *only* when the token grants
+  `perms.download` / `perms.print` — a locked-down token shows neither, and print
+  goes through a stylesheet that keeps the watermark.
+- **Keyboard:** `←` / `→` / `Space` page through slideshow, `+` / `-` zoom,
+  `f` toggles full screen. `Ctrl`/`Cmd`+`S` and right-click are blocked; `Cmd`+`P`
+  is blocked unless printing is granted.
+
 ## Quickstart
 
 ```bash
