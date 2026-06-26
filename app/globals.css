@@ -766,6 +766,96 @@ h3 {
   cursor: pointer;
 }
 
+/* ----------------------------------------------------------------- dashboard extras */
+
+.toasts {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+}
+.toast {
+  background: var(--teal-deep);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.progress-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.progress-banner .bar {
+  flex: 1;
+  max-width: 340px;
+  height: 9px;
+}
+.progress-banner span {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+}
+
+.assign-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 16px 0;
+  max-height: 320px;
+  overflow: auto;
+}
+.assign-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.assign-row:hover {
+  border-color: var(--teal);
+  background: var(--tan-soft);
+}
+.assign-row .lesson-icon {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+.assign-add {
+  margin-left: auto;
+  color: var(--maroon);
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* ----------------------------------------------------------------- print */
 /* Only reachable when the token grants print — strip the chrome and print the
    rendered (still watermarked) pages. */
