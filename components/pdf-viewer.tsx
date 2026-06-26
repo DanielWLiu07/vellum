@@ -29,6 +29,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
   const [isFull, setIsFull] = useState(false);
 
   const docRef = useRef<PdfDoc | null>(null);
+  const docBytesRef = useRef<ArrayBuffer | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -56,9 +57,12 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
           throw new Error(humanError(res.status, reason?.error));
         }
         const buf = await res.arrayBuffer();
+        // Keep the original bytes for a permitted download; pdf.js may detach
+        // the buffer it's handed, so give it a copy.
+        docBytesRef.current = buf;
 
         const pdfjs = await loadPdfjs();
-        const doc = (await pdfjs.getDocument({ data: buf }).promise) as unknown as PdfDoc;
+        const doc = (await pdfjs.getDocument({ data: buf.slice(0) }).promise) as unknown as PdfDoc;
         if (cancelled) return;
         docRef.current = doc;
         setNumPages(doc.numPages);
@@ -178,6 +182,25 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
     setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, +(s + delta).toFixed(2))));
   };
 
+  // Only reachable when the token granted perms.download — saves the original
+  // bytes we already fetched (no second proxy round-trip).
+  const onDownload = () => {
+    const bytes = docBytesRef.current;
+    if (!bytes) return;
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "document.pdf";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Only reachable when perms.print — the print stylesheet hides the chrome and
+  // prints just the rendered pages.
+  const onPrint = () => window.print();
+
+  const perms = claims?.perms ?? { download: false, print: false, copy: false };
+
   if (status === "error") {
     return (
       <div className="vellum-state" role="alert">
@@ -205,6 +228,10 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
         toggleFitWidth={() => setFitWidth((f) => !f)}
         isFull={isFull}
         toggleFull={toggleFull}
+        canDownload={perms.download}
+        onDownload={onDownload}
+        canPrint={perms.print}
+        onPrint={onPrint}
         loading={status === "loading"}
       />
       <div className="vellum-scroll" ref={containerRef} aria-busy={status === "loading"} />
@@ -229,9 +256,13 @@ function Toolbar(props: {
   toggleFitWidth: () => void;
   isFull: boolean;
   toggleFull: () => void;
+  canDownload: boolean;
+  onDownload: () => void;
+  canPrint: boolean;
+  onPrint: () => void;
   loading: boolean;
 }) {
-  const { mode, setMode, page, numPages, setPage, scale, zoom, fitWidth, toggleFitWidth, isFull, toggleFull, loading } = props;
+  const { mode, setMode, page, numPages, setPage, scale, zoom, fitWidth, toggleFitWidth, isFull, toggleFull, canDownload, onDownload, canPrint, onPrint, loading } = props;
   return (
     <div className="vellum-toolbar">
       <div className="vellum-toolbar-group">
@@ -300,6 +331,16 @@ function Toolbar(props: {
         </button>
       </div>
       <div className="vellum-toolbar-group">
+        {canPrint && (
+          <button type="button" className="vellum-btn" onClick={onPrint} disabled={loading}>
+            Print
+          </button>
+        )}
+        {canDownload && (
+          <button type="button" className="vellum-btn" onClick={onDownload} disabled={loading}>
+            Download
+          </button>
+        )}
         <button
           type="button"
           className="vellum-btn"

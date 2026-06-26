@@ -284,3 +284,26 @@ h3 {
   padding: 4px 12px;
   margin-bottom: 20px;
 }
+
+/* ----------------------------------------------------------------- print */
+/* Only reachable when the token grants print — strip the chrome and print the
+   rendered (still watermarked) pages. */
+@media print {
+  .vellum-toolbar,
+  .vellum-state {
+    display: none !important;
+  }
+  .vellum-root,
+  .vellum-scroll {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+    padding: 0;
+  }
+  .vellum-page {
+    box-shadow: none;
+    border-radius: 0;
+    max-width: 100%;
+    page-break-after: always;
+  }
+}
