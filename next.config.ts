@@ -1,9 +1,13 @@
 import type { NextConfig } from "next";
 
-// Origins allowed to embed the viewer in an <iframe>. The host app (e.g. HOSA)
-// frames /embed; everyone else is denied. Configure via VELLUM_FRAME_ANCESTORS
-// (space-separated origins). Defaults to 'self' only.
-const frameAncestors = process.env.VELLUM_FRAME_ANCESTORS?.trim() || "'self'";
+// Origins allowed to embed the viewer in an <iframe>. Host apps add their
+// origins via VELLUM_FRAME_ANCESTORS (space-separated). `'self'` is ALWAYS
+// included — the service's own dashboard and landing demo embed /embed, so
+// dropping self-framing would break them. We prepend it and dedupe.
+const configuredAncestors = (process.env.VELLUM_FRAME_ANCESTORS ?? "")
+  .split(/\s+/)
+  .filter((a) => a && a !== "'self'");
+const frameAncestors = ["'self'", ...configuredAncestors].join(" ");
 
 const nextConfig: NextConfig = {
   // pdfjs-dist ships a worker we resolve at runtime; keep it external from the
