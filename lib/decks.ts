@@ -60,8 +60,13 @@ export function getDeck(id: string): Deck | undefined {
 
 export function createDeck(title: string, cards: Card[]): Deck {
   const clean = cards
-    .map((c) => ({ front: clamp(c.front, FIELD_MAX), back: clamp(c.back, FIELD_MAX) }))
-    .filter((c) => c.front || c.back)
+    .map((c) => ({
+      front: clamp(c.front, FIELD_MAX),
+      back: clamp(c.back, FIELD_MAX),
+      ...(c.frontImageId ? { frontImageId: String(c.frontImageId).slice(0, 64) } : {}),
+      ...(c.backImageId ? { backImageId: String(c.backImageId).slice(0, 64) } : {}),
+    }))
+    .filter((c) => c.front || c.back || c.frontImageId || c.backImageId)
     .slice(0, MAX_CARDS);
   const deck: Deck = {
     id: `d_${Math.random().toString(36).slice(2, 10)}`,

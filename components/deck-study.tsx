@@ -30,6 +30,26 @@ export function DeckStudy({ deckId }: { deckId: string }) {
     };
   }, [deckId]);
 
+  // Keyboard control: space/enter flips, arrows move. Bound once; uses
+  // functional updates so it never goes stale.
+  const len = order.length;
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        setFlipped((f) => !f);
+      } else if (e.key === "ArrowRight") {
+        setFlipped(false);
+        setPos((p) => Math.min(len - 1, p + 1));
+      } else if (e.key === "ArrowLeft") {
+        setFlipped(false);
+        setPos((p) => Math.max(0, p - 1));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [len]);
+
   if (err) {
     return <div className="upload-card"><p className="dash-sub">Deck not found.</p><Link className="btn" href="/dashboard">Back to dashboard</Link></div>;
   }
@@ -44,6 +64,9 @@ export function DeckStudy({ deckId }: { deckId: string }) {
   const card = deck.cards[idx];
   if (!card) return null;
 
+  const text = flipped ? card.back : card.front;
+  const imageId = flipped ? card.backImageId : card.frontImageId;
+
   const next = () => { setFlipped(false); setPos((p) => Math.min(order.length - 1, p + 1)); };
   const prev = () => { setFlipped(false); setPos((p) => Math.max(0, p - 1)); };
   const shuffle = () => { setOrder((o) => [...o].sort(() => Math.random() - 0.5)); setPos(0); setFlipped(false); };
@@ -54,11 +77,18 @@ export function DeckStudy({ deckId }: { deckId: string }) {
         <h1 className="upload-h">{deck.title}</h1>
         <span className="section-count">{pos + 1} / {order.length}</span>
       </div>
+      <div className="study-progress" aria-hidden>
+        <span style={{ width: `${((pos + 1) / order.length) * 100}%` }} />
+      </div>
 
       <button type="button" className="flashcard" onClick={() => setFlipped((f) => !f)} aria-label="Flip card">
         <span className="flashcard-side">{flipped ? "Definition" : "Term"}</span>
-        <span className="flashcard-text">{flipped ? card.back : card.front}</span>
-        <span className="flashcard-hint">Click to flip</span>
+        {imageId ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="flashcard-img" src={`/api/images/${imageId}`} alt="" />
+        ) : null}
+        {text ? <span className="flashcard-text">{text}</span> : null}
+        <span className="flashcard-hint">Space to flip</span>
       </button>
 
       <div className="study-controls">

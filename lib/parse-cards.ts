@@ -3,6 +3,9 @@
 export interface Card {
   front: string;
   back: string;
+  /** Optional image id (see lib/images.ts) shown on the front / back of the card. */
+  frontImageId?: string;
+  backImageId?: string;
 }
 
 /**

@@ -41,6 +41,18 @@ describe("deck store", () => {
     expect(listDecks().some((x) => x.id === d.id && x.cardCount === 2)).toBe(true);
   });
 
+  it("carries card image ids and keeps an image-only card", () => {
+    const d = createDeck("Imaged", [
+      { front: "labeled", back: "diagram", frontImageId: "img_a", backImageId: "img_b" },
+      { front: "", back: "", frontImageId: "img_c" }, // image-only, must be kept
+      { front: "", back: "" }, // truly empty, dropped
+    ]);
+    created.push(d.id);
+    expect(d.cards).toHaveLength(2);
+    expect(d.cards[0]).toMatchObject({ frontImageId: "img_a", backImageId: "img_b" });
+    expect(d.cards[1]).toMatchObject({ frontImageId: "img_c" });
+  });
+
   it("defaults an empty title", () => {
     const d = createDeck("", [{ front: "x", back: "y" }]);
     created.push(d.id);

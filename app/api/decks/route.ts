@@ -32,10 +32,16 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const title = typeof body?.title === "string" ? body.title : "";
   const raw = Array.isArray(body?.cards) ? (body.cards as unknown[]) : [];
+  const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
   const cards: Card[] = raw
     .filter((c): c is Record<string, unknown> => Boolean(c) && typeof c === "object")
-    .map((c) => ({ front: String(c.front ?? ""), back: String(c.back ?? "") }))
-    .filter((c) => c.front || c.back);
+    .map((c) => ({
+      front: String(c.front ?? ""),
+      back: String(c.back ?? ""),
+      frontImageId: str(c.frontImageId),
+      backImageId: str(c.backImageId),
+    }))
+    .filter((c) => c.front || c.back || c.frontImageId || c.backImageId);
   if (cards.length === 0) {
     return NextResponse.json({ error: "no_cards" }, { status: 400 });
   }
