@@ -1504,3 +1504,5 @@ h3 {
 .tile.skeleton .tile-thumb { background: var(--tan-soft); }
 
 .tile-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+.dash-nav-link { text-decoration: none; }

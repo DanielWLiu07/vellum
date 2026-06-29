@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ActivityLog } from "./activity-log";
@@ -286,6 +287,9 @@ export function Dashboard() {
                 {item.soon && <span className="dash-nav-soon">Soon</span>}
               </button>
             ))}
+            <Link href="/guidelines" className="dash-nav-item dash-nav-link" data-testid="nav-guidelines">
+              <span className="dash-nav-label">Guidelines</span>
+            </Link>
           </nav>
         </aside>
 
