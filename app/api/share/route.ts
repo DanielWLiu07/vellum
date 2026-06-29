@@ -4,6 +4,7 @@ import { recordAudit } from "@/lib/audit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { getDoc } from "@/lib/store";
 import { mintToken } from "@/lib/token";
+import { DEMO_VIEWER, canView } from "@/lib/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
   const id = typeof body?.id === "string" ? body.id : "";
   const doc = await getDoc(id);
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (!canView(doc, DEMO_VIEWER)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const watermark = typeof body?.watermark === "string" ? body.watermark.slice(0, 120) : "";
   const ttlMinutes = Math.min(60, Math.max(1, Number(body?.ttlMinutes) || 15));

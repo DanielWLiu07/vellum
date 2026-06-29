@@ -70,7 +70,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
         const isImage =
           (h[0] === 0x89 && h[1] === 0x50) || // PNG
           (h[0] === 0xff && h[1] === 0xd8) || // JPEG
-          (h[0] === 0x47 && h[1] === 0x49) || // GIF
+          (h[0] === 0x47 && h[1] === 0x49 && h[2] === 0x46 && h[3] === 0x38) || // GIF
           (h[0] === 0x52 && h[8] === 0x57 && h[9] === 0x45); // WEBP (RIFF...WEBP)
         if (isImage) {
           kindRef.current = "image";

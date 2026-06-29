@@ -506,7 +506,7 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
 }
 
 function TrainerView({ section, onAssign, ...shared }: SharedProps & { section: string; onAssign: (memberId: string) => void }) {
-  if (section === "lessons") return <DocManager {...shared} heading="My lessons" />;
+  if (section === "lessons") return <DocManager {...shared} docs={filterScoped(shared.docs, DEMO_VIEWER, "accessible")} heading="My lessons" />;
   if (section === "group") {
     return (
       <section className="role-section">
@@ -530,7 +530,7 @@ function TrainerView({ section, onAssign, ...shared }: SharedProps & { section: 
 }
 
 function AdvisorView({ section, onManage, ...shared }: SharedProps & { section: string; onManage: (name: string) => void }) {
-  if (section === "lessons") return <DocManager {...shared} heading="Chapter lessons" />;
+  if (section === "lessons") return <DocManager {...shared} docs={filterScoped(shared.docs, DEMO_VIEWER, "accessible")} heading="Chapter lessons" />;
   if (section === "trainers") {
     return (
       <section className="role-section">
