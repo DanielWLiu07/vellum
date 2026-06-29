@@ -19,9 +19,9 @@ const ptSans = PT_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Vitals - secure document viewer",
+  title: "HOSA Vitals - shared study resources",
   description:
-    "A stateless, zero-knowledge secure document viewer microservice. Capability tokens, server-side proxying, watermarking, and download prevention.",
+    "Share notes, documents, and flashcards across your HOSA chapter, with a secure viewer that watermarks and protects gated content.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

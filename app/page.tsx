@@ -7,7 +7,7 @@ export default function Home() {
   return (
     <main className="landing">
       <span className="pill">microservice · pdf.js · zero-knowledge</span>
-      <h1>Vitals</h1>
+      <h1>HOSA Vitals</h1>
       <p className="tagline">
         A stateless, zero-knowledge secure document viewer. Embed gated PDFs with per-user
         watermarking and download prevention - without handing the viewer your data or your keys.
