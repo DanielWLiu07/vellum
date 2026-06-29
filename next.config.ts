@@ -10,6 +10,8 @@ const configuredAncestors = (process.env.VELLUM_FRAME_ANCESTORS ?? "")
 const frameAncestors = ["'self'", ...configuredAncestors].join(" ");
 
 const nextConfig: NextConfig = {
+  // Self-contained server bundle for Docker/self-hosting (.next/standalone).
+  output: "standalone",
   // pdfjs-dist ships a worker we resolve at runtime; keep it external from the
   // server bundle so the canvas/DOM-matrix shims don't get pulled server-side.
   serverExternalPackages: ["pdfjs-dist"],

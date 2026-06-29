@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { mintToken } from "@/lib/token";
 
 export const runtime = "nodejs";
@@ -16,6 +17,13 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "demo_disabled" }, { status: 404 });
+  }
+  const rl = rateLimit(`demo:${clientIp(req)}`, 30, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter), "Cache-Control": "no-store" } },
+    );
   }
   const secret = process.env.VELLUM_TOKEN_SECRET;
   if (!secret) {

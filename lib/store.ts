@@ -1,22 +1,19 @@
 /**
- * Demo document store for Vellum's standalone dashboard mode.
+ * Document store for Vellum's standalone dashboard mode.
  *
  * Vellum's *embedded* mode is stateless by design — the host app owns the
  * documents. Its *dashboard* mode needs somewhere to put uploads so you can
- * manage + share them, so this is a small in-process store: a couple of bundled
- * samples (served from /public) plus session uploads held in memory.
- *
- * In-memory is deliberately demo-grade — uploads live as long as the serverless
- * instance stays warm and aren't shared across regions. A production deployment
- * would swap this for object storage (R2/S3) + a metadata table; the dashboard,
- * routes, and viewer wouldn't change.
+ * manage + share them. This layer stitches together two sources:
+ *   - bundled samples (served from /public, defined here)
+ *   - uploads, held by the active storage backend (in-memory or R2 — see
+ *     ./storage). Set the R2_* env vars to make uploads durable.
  */
+
+import { backend, type UploadMeta } from "./storage";
 
 export interface DocMeta {
   id: string;
   name: string;
-  /** Bytes, for an uploaded doc. Bundled samples are served from /public. */
-  bytes?: Uint8Array;
   /** Public path for a bundled sample (served from /public). */
   publicPath?: string;
   sizeBytes: number;
@@ -24,50 +21,53 @@ export interface DocMeta {
   bundled: boolean;
 }
 
-// Persist the Map across hot reloads / route modules in dev via globalThis.
-const g = globalThis as unknown as { __vellumDocs?: Map<string, DocMeta> };
-const docs: Map<string, DocMeta> = (g.__vellumDocs ??= new Map());
-
-// Seed the bundled samples once.
-const BUNDLED: Array<{ id: string; name: string; publicPath: string; sizeBytes: number }> = [
-  { id: "sample", name: "Vellum — overview (sample)", publicPath: "/sample.pdf", sizeBytes: 2553 },
+const BUNDLED: DocMeta[] = [
+  {
+    id: "sample",
+    name: "Vellum — overview (sample)",
+    publicPath: "/sample.pdf",
+    sizeBytes: 2553,
+    uploadedAt: 0,
+    bundled: true,
+  },
 ];
-for (const b of BUNDLED) {
-  if (!docs.has(b.id)) {
-    docs.set(b.id, { ...b, uploadedAt: 0, bundled: true });
-  }
-}
+const bundledById = new Map(BUNDLED.map((b) => [b.id, b]));
 
-export function listDocs(): DocMeta[] {
-  return [...docs.values()].sort((a, b) => Number(b.bundled) - Number(a.bundled) || b.uploadedAt - a.uploadedAt);
-}
-
-export function getDoc(id: string): DocMeta | undefined {
-  return docs.get(id);
-}
-
-export function addUpload(name: string, bytes: Uint8Array): DocMeta {
-  const id = `u_${Math.random().toString(36).slice(2, 10)}`;
-  const meta: DocMeta = {
-    id,
-    name: name.slice(0, 120) || "document.pdf",
-    bytes,
-    sizeBytes: bytes.byteLength,
-    uploadedAt: Date.now(),
+function toDocMeta(u: UploadMeta): DocMeta {
+  return {
+    id: u.id,
+    name: u.name,
+    sizeBytes: u.sizeBytes,
+    uploadedAt: u.uploadedAt,
     bundled: false,
   };
-  docs.set(id, meta);
-  // Cap the store so a long-lived instance can't grow unbounded.
-  const uploads = [...docs.values()].filter((d) => !d.bundled).sort((a, b) => a.uploadedAt - b.uploadedAt);
-  while (uploads.length > 25) {
-    const oldest = uploads.shift();
-    if (oldest) docs.delete(oldest.id);
-  }
-  return meta;
 }
 
-export function deleteDoc(id: string): boolean {
-  const d = docs.get(id);
-  if (!d || d.bundled) return false;
-  return docs.delete(id);
+/** Bundled samples first, then uploads (newest-first from the backend). */
+export async function listDocs(): Promise<DocMeta[]> {
+  const uploads = (await backend().list()).map(toDocMeta);
+  return [...BUNDLED, ...uploads];
+}
+
+/** Metadata for one doc (never the bytes — use getDocBytes for those). */
+export async function getDoc(id: string): Promise<DocMeta | undefined> {
+  const b = bundledById.get(id);
+  if (b) return b;
+  const u = await backend().head(id);
+  return u ? toDocMeta(u) : undefined;
+}
+
+/** Raw bytes for an uploaded doc. Bundled samples are served via publicPath. */
+export async function getDocBytes(id: string): Promise<Uint8Array | undefined> {
+  if (bundledById.has(id)) return undefined;
+  return backend().getBytes(id);
+}
+
+export async function addUpload(name: string, bytes: Uint8Array): Promise<DocMeta> {
+  return toDocMeta(await backend().put(name, bytes));
+}
+
+export async function deleteDoc(id: string): Promise<boolean> {
+  if (bundledById.has(id)) return false; // bundled samples are immutable
+  return backend().remove(id);
 }

@@ -110,6 +110,56 @@ h3 {
   text-align: center;
 }
 
+.vellum-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+.vellum-thumbs {
+  flex: 0 0 152px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 10px;
+  background: var(--surface, #fff);
+  border-right: 1px solid var(--border, #e2d8ca);
+}
+
+.vellum-thumb {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.vellum-thumb:hover {
+  background: var(--tan-soft, #ece3d7);
+}
+.vellum-thumb.is-active {
+  border-color: var(--teal, #126289);
+  background: var(--tan-soft, #ece3d7);
+}
+.vellum-thumb canvas {
+  width: 100%;
+  height: auto;
+  box-shadow: 0 2px 8px rgba(18, 98, 137, 0.18);
+  border-radius: 2px;
+  background: #fff;
+}
+.vellum-thumb-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--teal, #126289);
+}
+
 .vellum-scroll {
   flex: 1 1 auto;
   overflow: auto;
@@ -433,6 +483,13 @@ h3 {
   border-color: var(--teal);
   background: var(--tan-soft);
 }
+.btn.danger {
+  color: var(--maroon);
+}
+.btn.danger:hover {
+  border-color: var(--maroon);
+  background: #f6e9e3;
+}
 
 .dash-viewer {
   border: 1px solid var(--border);
@@ -589,6 +646,20 @@ h3 {
   border-radius: 14px;
   padding: 14px 16px;
   transition: box-shadow 0.12s, border-color 0.12s;
+}
+.lesson-card.skeleton {
+  pointer-events: none;
+  animation: vellum-pulse 1.2s ease-in-out infinite;
+}
+.lesson-card.skeleton .lesson-title,
+.lesson-card.skeleton .lesson-sub {
+  color: transparent;
+  background: var(--tan-soft);
+  border-radius: 5px;
+}
+@keyframes vellum-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.85; }
 }
 .lesson-card:hover {
   border-color: var(--teal);

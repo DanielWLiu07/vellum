@@ -9,7 +9,7 @@ export async function GET() {
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
   }
-  const docs = listDocs().map((d) => ({
+  const docs = (await listDocs()).map((d) => ({
     id: d.id,
     name: d.name,
     sizeBytes: d.sizeBytes,

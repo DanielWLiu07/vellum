@@ -27,10 +27,12 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
   const [mode, setMode] = useState<Mode>("scroll");
   const [fitWidth, setFitWidth] = useState(true);
   const [isFull, setIsFull] = useState(false);
+  const [showThumbs, setShowThumbs] = useState(false);
 
   const docRef = useRef<PdfDoc | null>(null);
   const docBytesRef = useRef<ArrayBuffer | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const thumbsRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // ---- Load: read token from the URL fragment, fetch bytes via the proxy. ----
@@ -94,6 +96,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);
       canvas.className = "vellum-page";
+      canvas.dataset.page = String(n);
       const ctx = canvas.getContext("2d");
       if (!ctx) continue;
       await pdfPage.render({ canvasContext: ctx, viewport }).promise;
@@ -102,9 +105,63 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
     }
   }, [claims, mode, page, scale]);
 
+  // Jump to a page from the thumbnail rail: in scroll mode, scroll the page
+  // into view; in slides mode, switch to it.
+  const onJump = useCallback((n: number) => {
+    setPage(n);
+    if (mode === "scroll") {
+      containerRef.current
+        ?.querySelector(`canvas[data-page="${n}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [mode]);
+
   useEffect(() => {
     if (status === "ready") void renderPages();
   }, [status, renderPages]);
+
+  // ---- Render the thumbnail rail when it's open. ----
+  useEffect(() => {
+    if (status !== "ready" || !showThumbs) return;
+    const doc = docRef.current;
+    const rail = thumbsRef.current;
+    if (!doc || !rail) return;
+    let cancelled = false;
+    (async () => {
+      rail.replaceChildren();
+      for (let n = 1; n <= doc.numPages; n++) {
+        if (cancelled) return;
+        const pdfPage = await doc.getPage(n);
+        const vp = pdfPage.getViewport({ scale: 0.2 });
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "vellum-thumb";
+        btn.dataset.page = String(n);
+        btn.setAttribute("aria-label", `Go to page ${n}`);
+        btn.addEventListener("click", () => onJump(n));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.floor(vp.width);
+        canvas.height = Math.floor(vp.height);
+        const ctx = canvas.getContext("2d");
+        if (ctx) await pdfPage.render({ canvasContext: ctx, viewport: vp }).promise;
+        const label = document.createElement("span");
+        label.className = "vellum-thumb-label";
+        label.textContent = String(n);
+        btn.append(canvas, label);
+        if (!cancelled) rail.appendChild(btn);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, showThumbs, onJump]);
+
+  // ---- Keep the active thumbnail highlighted as the page changes. ----
+  useEffect(() => {
+    thumbsRef.current?.querySelectorAll<HTMLElement>(".vellum-thumb").forEach((el) => {
+      el.classList.toggle("is-active", el.dataset.page === String(page));
+    });
+  }, [page, showThumbs]);
 
   // ---- Lock down save/print/right-click/selection. ----
   useEffect(() => {
@@ -162,7 +219,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
       cancelled = true;
       window.removeEventListener("resize", onResize);
     };
-  }, [status, fitWidth]);
+  }, [status, fitWidth, showThumbs]);
 
   // ---- Fullscreen state mirror. ----
   useEffect(() => {
@@ -228,13 +285,18 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
         toggleFitWidth={() => setFitWidth((f) => !f)}
         isFull={isFull}
         toggleFull={toggleFull}
+        showThumbs={showThumbs}
+        toggleThumbs={() => setShowThumbs((s) => !s)}
         canDownload={perms.download}
         onDownload={onDownload}
         canPrint={perms.print}
         onPrint={onPrint}
         loading={status === "loading"}
       />
-      <div className="vellum-scroll" ref={containerRef} aria-busy={status === "loading"} />
+      <div className="vellum-body">
+        {showThumbs && <div className="vellum-thumbs" ref={thumbsRef} aria-label="Page thumbnails" role="navigation" />}
+        <div className="vellum-scroll" ref={containerRef} aria-busy={status === "loading"} />
+      </div>
       {status === "loading" && (
         <div className="vellum-state">
           <div className="vellum-spinner" aria-label="Loading document" />
@@ -256,16 +318,27 @@ function Toolbar(props: {
   toggleFitWidth: () => void;
   isFull: boolean;
   toggleFull: () => void;
+  showThumbs: boolean;
+  toggleThumbs: () => void;
   canDownload: boolean;
   onDownload: () => void;
   canPrint: boolean;
   onPrint: () => void;
   loading: boolean;
 }) {
-  const { mode, setMode, page, numPages, setPage, scale, zoom, fitWidth, toggleFitWidth, isFull, toggleFull, canDownload, onDownload, canPrint, onPrint, loading } = props;
+  const { mode, setMode, page, numPages, setPage, scale, zoom, fitWidth, toggleFitWidth, isFull, toggleFull, showThumbs, toggleThumbs, canDownload, onDownload, canPrint, onPrint, loading } = props;
   return (
     <div className="vellum-toolbar">
       <div className="vellum-toolbar-group">
+        <button
+          type="button"
+          className={`vellum-btn${showThumbs ? " vellum-btn-active" : ""}`}
+          onClick={toggleThumbs}
+          disabled={loading}
+          aria-pressed={showThumbs}
+        >
+          Pages
+        </button>
         <button
           type="button"
           className="vellum-btn"

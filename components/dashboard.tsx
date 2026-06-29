@@ -41,6 +41,55 @@ function useToasts() {
   return { notify, node };
 }
 
+/** Close a modal/overlay when Escape is pressed. */
+function useEscape(onClose: () => void) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+}
+
+/**
+ * Dialog focus management: Escape to close, Tab trapped within the modal,
+ * first control focused on open, and focus restored to the trigger on close.
+ * Returns a ref to attach to the modal's content element.
+ */
+function useModal(onClose: () => void) {
+  useEscape(onClose);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = ref.current;
+    const restoreTo = document.activeElement as HTMLElement | null;
+    const selector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusables = () => (root ? Array.from(root.querySelectorAll<HTMLElement>(selector)) : []);
+    focusables()[0]?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    root?.addEventListener("keydown", onKey);
+    return () => {
+      root?.removeEventListener("keydown", onKey);
+      restoreTo?.focus?.();
+    };
+  }, []);
+  return ref;
+}
+
 /* ---------------------------------------------------------------- main */
 
 export function Dashboard() {
@@ -50,14 +99,33 @@ export function Dashboard() {
   const [shareDoc, setShareDoc] = useState<Doc | null>(null);
   const [assignTo, setAssignTo] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { notify, node: toastNode } = useToasts();
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/docs", { cache: "no-store" }).catch(() => null);
-    if (res?.ok) setDocs((await res.json()).docs);
+    if (res?.ok) {
+      setDocs((await res.json()).docs);
+      setLoadError(false);
+    } else {
+      setLoadError(true);
+    }
+    setLoading(false);
   }, []);
-  useEffect(() => void refresh(), [refresh]);
+  // Load the document list on mount. refresh() only setState()s after its
+  // fetch awaits, so the cascading-render concern the rule guards against
+  // doesn't apply here.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  // Manual re-fetch (Retry button): show the skeleton again, then reload.
+  const onRetry = useCallback(() => {
+    setLoading(true);
+    setLoadError(false);
+    void refresh();
+  }, [refresh]);
 
   const view = useCallback(async (docId: string, watermark = "") => {
     const res = await fetch("/api/share", {
@@ -83,8 +151,18 @@ export function Dashboard() {
   };
   const pickFile = () => fileRef.current?.click();
 
+  const onDelete = useCallback(async (doc: Doc) => {
+    if (typeof window !== "undefined" && !window.confirm(`Delete "${doc.name}"? This can't be undone.`)) return;
+    const res = await fetch(`/api/doc/${doc.id}`, { method: "DELETE" }).catch(() => null);
+    if (res?.ok) { await refresh(); notify(`Deleted ${doc.name}`); }
+    else notify("Couldn't delete the document.");
+  }, [refresh, notify]);
+
   const active = ROLES.find((r) => r.id === role)!;
-  const shared = { docs, onView: view, onShare: setShareDoc, onUploadClick: pickFile, uploading };
+  const shared = {
+    docs, onView: view, onShare: setShareDoc, onDelete, onUploadClick: pickFile,
+    uploading, loading, loadError, onRetry,
+  };
 
   return (
     <div className="dash">
@@ -100,19 +178,12 @@ export function Dashboard() {
       </div>
       <p className="dash-sub" style={{ marginBottom: 24 }}>{active.blurb}</p>
 
-      {role === "student" && <StudentView onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} />}
+      {role === "student" && <StudentView docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} />}
       {role === "trainer" && <TrainerView {...shared} onAssign={setAssignTo} />}
       {role === "advisor" && <AdvisorView {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />}
       {role === "admin" && <AdminView {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
 
-      {viewer && (
-        <div className="viewer-modal-backdrop" onClick={() => setViewer(null)}>
-          <div className="viewer-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="viewer-close" onClick={() => setViewer(null)} aria-label="Close">✕</button>
-            <iframe key={viewer} className="viewer-modal-frame" src={viewer} title="Lesson viewer" sandbox="allow-scripts allow-same-origin" />
-          </div>
-        </div>
-      )}
+      {viewer && <ViewerModal src={viewer} onClose={() => setViewer(null)} />}
 
       {shareDoc && <ShareModal doc={shareDoc} onClose={() => setShareDoc(null)} onView={view} notify={notify} />}
       {assignTo && (
@@ -153,9 +224,19 @@ function LessonCard({ title, sub, badge, actions }: { title: string; sub: string
   );
 }
 
-type SharedProps = { docs: Doc[]; onView: (id: string, wm?: string) => void; onShare: (d: Doc) => void; onUploadClick: () => void; uploading: boolean };
+type SharedProps = {
+  docs: Doc[];
+  onView: (id: string, wm?: string) => void;
+  onShare: (d: Doc) => void;
+  onDelete: (d: Doc) => void;
+  onUploadClick: () => void;
+  uploading: boolean;
+  loading: boolean;
+  loadError: boolean;
+  onRetry: () => void;
+};
 
-function DocManager({ docs, onView, onShare, onUploadClick, uploading, heading, canUpload = true }: SharedProps & { heading: string; canUpload?: boolean }) {
+function DocManager({ docs, onView, onShare, onDelete, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true }: SharedProps & { heading: string; canUpload?: boolean }) {
   return (
     <section className="role-section">
       <div className="section-head">
@@ -163,39 +244,109 @@ function DocManager({ docs, onView, onShare, onUploadClick, uploading, heading, 
         {canUpload && <button className="cta" disabled={uploading} onClick={onUploadClick}>{uploading ? "Uploading…" : "+ Upload PDF"}</button>}
       </div>
       <div className="lesson-grid">
-        {docs.map((d) => (
-          <LessonCard key={d.id} title={d.name} sub={`${d.bundled ? "Sample" : "Uploaded"} · ${(d.sizeBytes / 1024).toFixed(0)} KB`}
-            actions={<>
-              <button className="btn" onClick={() => onShare(d)}>Share</button>
-              <button className="btn primary" onClick={() => onView(d.id)}>View</button>
-            </>} />
-        ))}
-        {docs.length === 0 && <div className="empty-state">No documents yet. {canUpload && "Click + Upload PDF to add one."}</div>}
+        {loading ? (
+          [0, 1, 2].map((i) => (
+            <div key={i} className="lesson-card skeleton" aria-hidden>
+              <div className="lesson-icon">▤</div>
+              <div className="lesson-body"><p className="lesson-title">Loading…</p><p className="lesson-sub">&nbsp;</p></div>
+            </div>
+          ))
+        ) : loadError ? (
+          <div className="empty-state">
+            Couldn’t load documents. <button className="btn" onClick={onRetry}>Retry</button>
+          </div>
+        ) : docs.length === 0 ? (
+          <div className="empty-state">No documents yet. {canUpload && "Click + Upload PDF to add one."}</div>
+        ) : (
+          docs.map((d) => (
+            <LessonCard key={d.id} title={d.name} sub={`${d.bundled ? "Sample" : "Uploaded"} · ${(d.sizeBytes / 1024).toFixed(0)} KB`}
+              actions={<>
+                <button className="btn" onClick={() => onShare(d)}>Share</button>
+                <button className="btn primary" onClick={() => onView(d.id)}>View</button>
+                {!d.bundled && <button className="btn danger" onClick={() => onDelete(d)}>Delete</button>}
+              </>} />
+          ))
+        )}
       </div>
     </section>
   );
 }
 
+function ViewerModal({ src, onClose }: { src: string; onClose: () => void }) {
+  const ref = useModal(onClose);
+  return (
+    <div className="viewer-modal-backdrop" onClick={onClose}>
+      <div className="viewer-modal" ref={ref} role="dialog" aria-modal="true" aria-label="Document viewer" onClick={(e) => e.stopPropagation()}>
+        <button className="viewer-close" onClick={onClose} aria-label="Close">✕</button>
+        <iframe key={src} className="viewer-modal-frame" src={src} title="Lesson viewer" sandbox="allow-scripts allow-same-origin" />
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- role views */
 
-function StudentView({ onView, onStart }: { onView: (id: string) => void; onStart: (title: string) => void }) {
+function StudentView({ docs, onView, onStart }: { docs: Doc[]; onView: (id: string, wm?: string) => void; onStart: (title: string) => void }) {
   const done = STUDENT_ASSIGNMENTS.filter((a) => a.status === "done").length;
-  const pct = Math.round((done / STUDENT_ASSIGNMENTS.length) * 100);
+  const total = STUDENT_ASSIGNMENTS.length;
+  const pct = Math.round((done / total) * 100);
+  const next = STUDENT_ASSIGNMENTS.find((a) => a.status !== "done");
   return (
-    <section className="role-section">
-      <div className="section-head"><h2>Assigned to you</h2><span className="section-count">{done} of {STUDENT_ASSIGNMENTS.length} complete</span></div>
-      <div className="progress-banner"><ProgressBar value={pct} /><span>{pct}%</span></div>
-      <div className="lesson-grid">
-        {STUDENT_ASSIGNMENTS.map((a) => (
-          <LessonCard key={a.id} title={a.title}
-            sub={`${a.kind === "quiz" ? "Quiz" : "Lesson"} · ${a.from}${a.due ? ` · due ${a.due}` : ""}`}
-            badge={<StatusBadge status={a.status} />}
-            actions={a.kind === "document" && a.docId
-              ? <button className="btn primary" onClick={() => onView(a.docId!)}>Open</button>
-              : <button className="btn primary" onClick={() => onStart(a.title)}>{a.status === "done" ? "Review" : "Start"}</button>} />
-        ))}
+    <>
+      {/* At-a-glance stats */}
+      <div className="stat-grid">
+        <div className="stat-card"><p className="stat-value">{total - done}</p><p className="stat-label">To do</p></div>
+        <div className="stat-card"><p className="stat-value">{done}</p><p className="stat-label">Completed</p></div>
+        <div className="stat-card"><p className="stat-value">{pct}%</p><p className="stat-label">Progress</p></div>
+        <div className="stat-card"><p className="stat-value">{docs.length}</p><p className="stat-label">Content available</p></div>
       </div>
-    </section>
+
+      {/* Up next — one clear call to action */}
+      {next && (
+        <div className="lesson-card" style={{ borderColor: "var(--teal)" }}>
+          <div className="lesson-icon" aria-hidden>▶</div>
+          <div className="lesson-body">
+            <p className="lesson-sub">Up next</p>
+            <p className="lesson-title">{next.title}</p>
+          </div>
+          <div className="lesson-end">
+            <button className="btn primary" onClick={() => (next.kind === "document" && next.docId ? onView(next.docId) : onStart(next.title))}>
+              {next.status === "in_progress" ? "Continue" : "Start"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Assigned to you */}
+      <section className="role-section">
+        <div className="section-head"><h2>Assigned to you</h2><span className="section-count">{done} of {total} complete</span></div>
+        <div className="progress-banner"><ProgressBar value={pct} /><span>{pct}%</span></div>
+        <div className="lesson-grid">
+          {STUDENT_ASSIGNMENTS.map((a) => (
+            <LessonCard key={a.id} title={a.title}
+              sub={`${a.kind === "quiz" ? "Quiz" : "Lesson"} · ${a.from}${a.due ? ` · due ${a.due}` : ""}`}
+              badge={<StatusBadge status={a.status} />}
+              actions={a.kind === "document" && a.docId
+                ? <button className="btn primary" onClick={() => onView(a.docId!)}>Open</button>
+                : <button className="btn primary" onClick={() => onStart(a.title)}>{a.status === "done" ? "Review" : "Start"}</button>} />
+          ))}
+        </div>
+      </section>
+
+      {/* All general content — every student can open these */}
+      <section className="role-section">
+        <div className="section-head"><h2>All content</h2><span className="section-count">{docs.length} available to everyone</span></div>
+        <p className="dash-sub" style={{ marginTop: -4, marginBottom: 12 }}>General resources every student can open anytime.</p>
+        <div className="lesson-grid">
+          {docs.map((d) => (
+            <LessonCard key={d.id} title={d.name}
+              sub={`${d.bundled ? "General resource" : "Shared"} · PDF`}
+              actions={<button className="btn primary" onClick={() => onView(d.id)}>Open</button>} />
+          ))}
+          {docs.length === 0 && <div className="empty-state">No content available yet.</div>}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -277,6 +428,8 @@ function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () =>
   const [print, setPrint] = useState(false);
   const [slides, setSlides] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const ref = useModal(onClose);
 
   const mint = async () => {
     const res = await fetch("/api/share", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -286,7 +439,7 @@ function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () =>
 
   return (
     <div className="dash-modal-backdrop" onClick={onClose}>
-      <div className="dash-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="dash-modal" ref={ref} role="dialog" aria-modal="true" aria-label={`Share ${doc.name}`} onClick={(e) => e.stopPropagation()}>
         <h2>Share “{doc.name}”</h2>
         <p className="dash-muted" style={{ padding: 0, marginTop: 4 }}>The link carries a signed token — it expires and can’t be edited.</p>
         <label className="dash-field"><span>Watermark (shown on every page)</span>
@@ -301,7 +454,17 @@ function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () =>
         <div className="dash-modal-actions">
           <button className="cta secondary" onClick={onClose}>Cancel</button>
           <button className="cta secondary" disabled={busy} onClick={async () => { setBusy(true); const u = await mint(); setBusy(false); if (u) { onClose(); onView(doc.id, watermark); } }}>Preview</button>
-          <button className="cta" disabled={busy} onClick={async () => { setBusy(true); const u = await mint(); setBusy(false); if (u) { await navigator.clipboard.writeText(location.origin + u).catch(() => {}); notify("Secure link copied"); onClose(); } }}>Copy link</button>
+          <button className="cta" disabled={busy} onClick={async () => {
+            setBusy(true);
+            const u = await mint();
+            setBusy(false);
+            if (u) {
+              await navigator.clipboard.writeText(location.origin + u).catch(() => {});
+              notify("Secure link copied");
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }
+          }}>{copied ? "Copied ✓" : "Copy link"}</button>
         </div>
       </div>
     </div>
@@ -309,9 +472,10 @@ function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () =>
 }
 
 function AssignModal({ memberName, docs, onClose, onAssign }: { memberName: string; docs: Doc[]; onClose: () => void; onAssign: (title: string, name: string) => void }) {
+  const ref = useModal(onClose);
   return (
     <div className="dash-modal-backdrop" onClick={onClose}>
-      <div className="dash-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="dash-modal" ref={ref} role="dialog" aria-modal="true" aria-label={`Assign a lesson to ${memberName}`} onClick={(e) => e.stopPropagation()}>
         <h2>Assign a lesson to {memberName}</h2>
         <p className="dash-muted" style={{ padding: 0, marginTop: 4 }}>Pick a lesson to add to their queue.</p>
         <div className="assign-list">

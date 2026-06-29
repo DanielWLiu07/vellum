@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { addUpload } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -12,6 +13,13 @@ const MAX_BYTES = 25 * 1024 * 1024;
 export async function POST(req: NextRequest) {
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
+  }
+  const rl = rateLimit(`upload:${clientIp(req)}`, 10, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter), "Cache-Control": "no-store" } },
+    );
   }
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
@@ -26,6 +34,6 @@ export async function POST(req: NextRequest) {
   if (file.type !== "application/pdf" || !isPdf) {
     return NextResponse.json({ error: "not_pdf" }, { status: 415 });
   }
-  const meta = addUpload(file.name, bytes);
+  const meta = await addUpload(file.name, bytes);
   return NextResponse.json({ id: meta.id, name: meta.name, sizeBytes: meta.sizeBytes });
 }

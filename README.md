@@ -100,7 +100,18 @@ npm run dev                     # http://localhost:3000 — live demo on the lan
 
 ```bash
 npm test           # token mint/verify/tamper/expiry suite
+npm run lint       # eslint (flat config)
 npm run build      # production build
+```
+
+### Docker (self-hosting)
+
+Vellum deploys natively on Vercel — Docker isn't required there. For self-hosting,
+a multi-stage `Dockerfile` builds the Next.js standalone output:
+
+```bash
+docker build -t vellum .
+docker run -p 3000:3000 -e VELLUM_TOKEN_SECRET=$(openssl rand -hex 32) -e VELLUM_DEMO_MODE=1 vellum
 ```
 
 ## Integrating with your app
@@ -151,6 +162,15 @@ Reasons: `malformed` · `bad_version` · `bad_signature` · `expired`.
 | `VELLUM_TOKEN_SECRET` | yes | Shared HMAC secret (32+ bytes). Must match the host app. |
 | `VELLUM_FRAME_ANCESTORS` | no | Space-separated origins allowed to iframe `/embed`. Default `'self'`. |
 | `VELLUM_DEMO_MODE` | no | `1` enables the public landing demo + `/api/demo-token`. |
+| `R2_ENDPOINT` | no | Cloudflare R2 (S3-compatible) endpoint for dashboard uploads, e.g. `https://<account>.r2.cloudflarestorage.com`. |
+| `R2_BUCKET` | no | R2 bucket name for dashboard uploads. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | no | R2 credentials. |
+
+**Dashboard upload storage.** This applies only to standalone **dashboard mode**
+(`VELLUM_DEMO_MODE=1`). Uploads default to an in-memory store (ephemeral). Set
+**all four** `R2_*` vars to persist them in Cloudflare R2 instead (works against
+AWS S3 too — point `R2_ENDPOINT` at the S3 endpoint). The **embedded**,
+zero-knowledge mode never touches storage — the host app owns the bytes.
 
 ## Tech
 
