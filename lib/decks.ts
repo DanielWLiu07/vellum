@@ -69,7 +69,7 @@ export function createDeck(title: string, cards: Card[]): Deck {
     .filter((c) => c.front || c.back || c.frontImageId || c.backImageId)
     .slice(0, MAX_CARDS);
   const deck: Deck = {
-    id: `d_${Math.random().toString(36).slice(2, 10)}`,
+    id: `d_${crypto.randomUUID()}`,
     title: clamp(title, TITLE_MAX) || "Untitled deck",
     cards: clean,
     createdAt: Date.now(),

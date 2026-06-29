@@ -18,7 +18,7 @@ const g = globalThis as unknown as { __vellumImages?: Map<string, StoredImage> }
 const store: Map<string, StoredImage> = (g.__vellumImages ??= new Map());
 
 export function putImage(bytes: Uint8Array, contentType: string): string {
-  const id = `img_${Math.random().toString(36).slice(2, 12)}`;
+  const id = `img_${crypto.randomUUID()}`;
   store.set(id, { bytes, contentType });
   // Evict oldest beyond the cap (Map preserves insertion order).
   while (store.size > CAP) {

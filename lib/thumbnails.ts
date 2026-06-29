@@ -14,3 +14,8 @@ export function setThumbnail(docId: string, imageId: string): void {
 export function getThumbnail(docId: string): string | undefined {
   return store.get(docId);
 }
+
+/** Drop a doc's thumbnail mapping (call when the doc is deleted). */
+export function deleteThumbnail(docId: string): void {
+  store.delete(docId);
+}

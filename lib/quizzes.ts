@@ -102,7 +102,7 @@ export function gradeQuiz(
 export function createQuiz(title: string, questions: QuizQuestion[]): Quiz {
   const clean = questions.map(cleanQuestion).filter((q): q is QuizQuestion => q !== null).slice(0, MAX_QUESTIONS);
   const quiz: Quiz = {
-    id: `q_${Math.random().toString(36).slice(2, 10)}`,
+    id: `q_${crypto.randomUUID()}`,
     title: clamp(title, TITLE_MAX) || "Untitled quiz",
     questions: clean,
     createdAt: Date.now(),

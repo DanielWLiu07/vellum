@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { recordAudit } from "@/lib/audit";
 import { clientIp } from "@/lib/rate-limit";
-import { setShare } from "@/lib/resource-share";
+import { deleteShare, setShare } from "@/lib/resource-share";
 import { deleteDoc, getDoc, getDocBytes } from "@/lib/store";
+import { deleteThumbnail } from "@/lib/thumbnails";
 import { DEMO_VIEWER, canView, normalizeVisibility } from "@/lib/visibility";
 
 export const runtime = "nodejs";
@@ -47,6 +48,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!canView(doc, DEMO_VIEWER)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const ok = await deleteDoc(id);
   if (!ok) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  deleteShare(id); // drop sidecar entries so they don't accumulate as orphans
+  deleteThumbnail(id);
   recordAudit("document.delete", doc.name, clientIp(_req));
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }

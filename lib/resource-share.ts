@@ -22,3 +22,8 @@ export function getShare(docId: string): ShareState | undefined {
 export function setShare(docId: string, state: ShareState): void {
   store.set(docId, { visibility: state.visibility, chapter: state.chapter.slice(0, 80) });
 }
+
+/** Drop a doc's share state (call when the doc is deleted, to avoid orphans). */
+export function deleteShare(docId: string): void {
+  store.delete(docId);
+}

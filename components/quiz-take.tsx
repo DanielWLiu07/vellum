@@ -66,7 +66,7 @@ export function QuizTake({ quizId }: { quizId: string }) {
 
       <div className="quiz-take-list">
         {quiz.questions.map((q, qi) => {
-          const picked = result ? answers[qi] : answers[qi];
+          const picked = answers[qi];
           const key = result?.correctIndexes[qi];
           return (
             <div key={qi} className={`quiz-take-q${result ? (result.correct[qi] ? " is-correct" : " is-wrong") : ""}`}>
@@ -104,8 +104,8 @@ export function QuizTake({ quizId }: { quizId: string }) {
             <Link className="btn primary" href="/dashboard">Done</Link>
           </>
         ) : (
-          <button type="button" className="cta" disabled={busy} onClick={submit}>
-            {busy ? "Grading..." : "Submit"}
+          <button type="button" className="cta" disabled={busy || answered !== quiz.questions.length} onClick={submit}>
+            {busy ? "Grading..." : answered !== quiz.questions.length ? `Answer all ${quiz.questions.length} to submit` : "Submit"}
           </button>
         )}
       </div>

@@ -51,7 +51,7 @@ export const DEFAULT_SCOPE: UploadScope = { visibility: "public", chapter: "", o
 export const MAX_UPLOADS = 25;
 
 export function newUploadId(): string {
-  return `u_${Math.random().toString(36).slice(2, 10)}`;
+  return `u_${crypto.randomUUID()}`;
 }
 
 export function cleanName(name: string): string {
