@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { recordAudit } from "@/lib/audit";
 import { deleteDeck, getDeck } from "@/lib/decks";
+import { clientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +26,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const off = gated();
   if (off) return off;
   const { id } = await params;
+  const deck = getDeck(id);
   if (!deleteDeck(id)) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  recordAudit("deck.delete", deck?.title ?? id, clientIp(_req));
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }

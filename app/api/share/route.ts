@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { recordAudit } from "@/lib/audit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { getDoc } from "@/lib/store";
 import { mintToken } from "@/lib/token";
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
     ttlSeconds: ttlMinutes * 60,
   });
 
+  recordAudit("document.share", doc.name, clientIp(req));
   const frag = new URLSearchParams({ t: token });
   if (body?.mode === "slides") frag.set("mode", "slides");
   return NextResponse.json(

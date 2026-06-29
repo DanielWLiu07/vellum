@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ActivityLog } from "./activity-log";
 import { FlashcardsView } from "./flashcards-view";
 import {
   ADMIN_STATS,
@@ -123,13 +124,6 @@ const NAV: Record<Role, NavItem[]> = {
     { id: "settings", label: "Settings" },
   ],
 };
-
-const ADMIN_ACTIVITY = [
-  { action: "Changed role to Trainer", who: "Priya Patel", when: "2m ago" },
-  { action: 'Uploaded "Lab safety briefing"', who: "HOSA Canada", when: "1h ago" },
-  { action: "Suspended account", who: "spam@example.com", when: "3h ago" },
-  { action: "Published resource to all students", who: "Coach Rivera", when: "yesterday" },
-];
 
 const ADMIN_SETTINGS = [
   { label: "Allow student uploads", desc: "Let students submit their own documents", on: false },
@@ -559,21 +553,7 @@ function AdminView({ section, onRole, ...shared }: SharedProps & { section: stri
       </section>
     );
   }
-  if (section === "activity") {
-    return (
-      <section className="role-section">
-        <div className="section-head"><h2>Activity log</h2><span className="section-count">recent platform actions</span></div>
-        <div className="table-card">
-          {ADMIN_ACTIVITY.map((a, i) => (
-            <div key={i} className="member-row">
-              <div className="member-id"><div><p className="member-name">{a.action}</p><p className="member-email">{a.who}</p></div></div>
-              <span className="member-frac">{a.when}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-    );
-  }
+  if (section === "activity") return <ActivityLog />;
   if (section === "settings") {
     return (
       <section className="role-section">

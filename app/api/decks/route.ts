@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { recordAudit } from "@/lib/audit";
 import { type Card, createDeck, listDecks } from "@/lib/decks";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
@@ -39,5 +40,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no_cards" }, { status: 400 });
   }
   const deck = createDeck(title, cards);
+  recordAudit("deck.create", deck.title, clientIp(req));
   return NextResponse.json({ id: deck.id, title: deck.title, cardCount: deck.cards.length });
 }

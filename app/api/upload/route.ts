@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { recordAudit } from "@/lib/audit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { addUpload } from "@/lib/store";
 
@@ -54,5 +55,6 @@ export async function POST(req: NextRequest) {
   const nameField = form?.get("name");
   const name = typeof nameField === "string" && nameField.trim() ? nameField.trim() : file.name;
   const meta = await addUpload(name, bytes, contentType);
+  recordAudit("document.upload", meta.name, clientIp(req));
   return NextResponse.json({ id: meta.id, name: meta.name, sizeBytes: meta.sizeBytes, contentType });
 }

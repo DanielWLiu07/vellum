@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { recordAudit } from "@/lib/audit";
+import { clientIp } from "@/lib/rate-limit";
 import { deleteDoc, getDoc, getDocBytes } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -37,7 +39,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
   }
   const { id } = await params;
+  const doc = await getDoc(id);
   const ok = await deleteDoc(id);
   if (!ok) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  recordAudit("document.delete", doc?.name ?? id, clientIp(_req));
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }
