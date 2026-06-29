@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
   const token = mintToken(secret, {
     src: `${origin}/sample.pdf`,
-    watermark: `VELLUM DEMO • ${stamp}`,
+    watermark: `VITALS DEMO • ${stamp}`,
     perms: { download: false, print: false, copy: false },
     ttlSeconds: 600,
   });

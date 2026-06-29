@@ -1,8 +1,8 @@
-# Vellum
+# Vitals
 
 **A stateless, zero-knowledge secure document viewer microservice.**
 
-Embed gated PDFs in any app with per-user watermarking and download prevention — without handing the viewer your database, your storage credentials, or your users. Vellum serves exactly one document, to one holder of one signed token, for a few minutes, and nothing else.
+Embed gated PDFs in any app with per-user watermarking and download prevention — without handing the viewer your database, your storage credentials, or your users. Vitals serves exactly one document, to one holder of one signed token, for a few minutes, and nothing else.
 
 [![CI](https://github.com/DanielWLiu07/vellum/actions/workflows/ci.yml/badge.svg)](https://github.com/DanielWLiu07/vellum/actions/workflows/ci.yml)
 
@@ -23,7 +23,7 @@ Naïvely embedding `<iframe src="https://bucket/doc.pdf">` fails every one of th
 
 ## The approach
 
-Vellum splits the work across a **trust boundary** sealed by a signed capability token. Your app stays the source of truth for *who can see what*; Vellum is a dumb, stateless renderer that only acts on a cryptographically valid grant.
+Vitals splits the work across a **trust boundary** sealed by a signed capability token. Your app stays the source of truth for *who can see what*; Vitals is a dumb, stateless renderer that only acts on a cryptographically valid grant.
 
 ```
    ┌─────────────────────────┐                    ┌──────────────────────────┐
@@ -44,16 +44,16 @@ Vellum splits the work across a **trust boundary** sealed by a signed capability
 
 1. **Your app** checks access (membership, consent, whatever), presigns a short-lived storage URL, and wraps it in an HMAC-signed token carrying the source URL, watermark text, permissions, and an expiry.
 2. **Your app** frames `…/embed#t=<token>`. The token rides in the URL **fragment** — browsers never send fragments to a server, so it stays out of access logs and `Referer` headers.
-3. **Vellum** verifies the signature (constant-time), then fetches the document **server-side** through its proxy. The presigned URL never reaches the browser, so it can't be lifted from the network tab and replayed.
-4. **Vellum** renders pages to `<canvas>` with pdf.js — never an `<embed>`/`<object>` pointed at the raw file — and bakes a tiled, diagonal watermark into the page pixels.
+3. **Vitals** verifies the signature (constant-time), then fetches the document **server-side** through its proxy. The presigned URL never reaches the browser, so it can't be lifted from the network tab and replayed.
+4. **Vitals** renders pages to `<canvas>` with pdf.js — never an `<embed>`/`<object>` pointed at the raw file — and bakes a tiled, diagonal watermark into the page pixels.
 
 ## Why "zero-knowledge"
 
-Vellum has no database and no storage credentials. It can't enumerate your documents or your users, and a compromise of the viewer leaks nothing but whichever single document a live token happens to point at. Rotating `VELLUM_TOKEN_SECRET` instantly invalidates every outstanding link.
+Vitals has no database and no storage credentials. It can't enumerate your documents or your users, and a compromise of the viewer leaks nothing but whichever single document a live token happens to point at. Rotating `VELLUM_TOKEN_SECRET` instantly invalidates every outstanding link.
 
 ## What it is — and honestly isn't
 
-No in-browser viewer can make bytes truly un-extractable: if a page renders, the pixels exist, and a determined user can screenshot or photograph the screen. Vellum doesn't pretend otherwise. What it does is raise the bar to the industry-standard "good enough":
+No in-browser viewer can make bytes truly un-extractable: if a page renders, the pixels exist, and a determined user can screenshot or photograph the screen. Vitals doesn't pretend otherwise. What it does is raise the bar to the industry-standard "good enough":
 
 - **no raw file URL is ever exposed** to the client;
 - **links expire** (default 15 min), so a copied embed URL dies quickly;
@@ -106,7 +106,7 @@ npm run build      # production build
 
 ### Docker (self-hosting)
 
-Vellum deploys natively on Vercel — Docker isn't required there. For self-hosting,
+Vitals deploys natively on Vercel — Docker isn't required there. For self-hosting,
 a multi-stage `Dockerfile` builds the Next.js standalone output:
 
 ```bash
@@ -116,7 +116,7 @@ docker run -p 3000:3000 -e VELLUM_TOKEN_SECRET=$(openssl rand -hex 32) -e VELLUM
 
 ## Integrating with your app
 
-Share one secret between your app and Vellum, mint a token with the same `lib/token.ts`, and frame the viewer.
+Share one secret between your app and Vitals, mint a token with the same `lib/token.ts`, and frame the viewer.
 
 ```ts
 import { mintToken } from "vellum/lib/token"; // or copy lib/token.ts into your app
@@ -138,7 +138,7 @@ const viewerSrc = `https://viewer.example.com/embed#t=${encodeURIComponent(token
 <iframe src={viewerSrc} sandbox="allow-scripts allow-same-origin" />
 ```
 
-Set `VELLUM_FRAME_ANCESTORS` on the Vellum deployment to your app's origin(s) so only you can embed it.
+Set `VELLUM_FRAME_ANCESTORS` on the Vitals deployment to your app's origin(s) so only you can embed it.
 
 ## API
 

@@ -1,7 +1,7 @@
 /**
- * Document store for Vellum's standalone dashboard mode.
+ * Document store for Vitals's standalone dashboard mode.
  *
- * Vellum's *embedded* mode is stateless by design - the host app owns the
+ * Vitals's *embedded* mode is stateless by design - the host app owns the
  * documents. Its *dashboard* mode needs somewhere to put uploads so you can
  * manage + share them. This layer stitches together two sources:
  *   - bundled samples (served from /public, defined here)
@@ -30,7 +30,7 @@ export interface DocMeta {
 const BUNDLED: DocMeta[] = [
   {
     id: "sample",
-    name: "Vellum - overview (sample)",
+    name: "Vitals - overview (sample)",
     publicPath: "/sample.pdf",
     sizeBytes: 2553,
     uploadedAt: 0,

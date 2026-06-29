@@ -1,5 +1,5 @@
 /**
- * Demo data for the role-aware dashboard. Vellum has no auth of its own, so the
+ * Demo data for the role-aware dashboard. Vitals has no auth of its own, so the
  * "Viewing as" switcher previews how each HOSA-style role would see the same
  * platform. Documents are real (the store); rosters / assignments / progress /
  * users are illustrative fixtures.
@@ -26,7 +26,7 @@ export interface AssignedItem {
 }
 
 export const STUDENT_ASSIGNMENTS: AssignedItem[] = [
-  { id: "a1", title: "Vellum - overview (sample)", kind: "document", docId: "sample", from: "Coach Rivera", due: "Jun 30", status: "in_progress" },
+  { id: "a1", title: "Vitals - overview (sample)", kind: "document", docId: "sample", from: "Coach Rivera", due: "Jun 30", status: "in_progress" },
   { id: "a2", title: "Intro to ECG interpretation", kind: "document", docId: "sample", from: "Coach Rivera", due: "Jul 4", status: "not_started" },
   { id: "a3", title: "Anatomy unit 2 quiz", kind: "quiz", from: "Coach Rivera", due: "Jul 2", status: "not_started" },
   { id: "a4", title: "Lab safety briefing", kind: "document", docId: "sample", from: "HOSA Canada", due: null, status: "done" },

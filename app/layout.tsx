@@ -19,7 +19,7 @@ const ptSans = PT_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Vellum - secure document viewer",
+  title: "Vitals - secure document viewer",
   description:
     "A stateless, zero-knowledge secure document viewer microservice. Capability tokens, server-side proxying, watermarking, and download prevention.",
 };

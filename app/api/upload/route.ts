@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const MAX_BYTES = 25 * 1024 * 1024;
 
 // Detect the file type from magic bytes (don't trust the client content-type).
-// Vellum securely renders PDFs and images (canvas + watermark), so those are
+// Vitals securely renders PDFs and images (canvas + watermark), so those are
 // the accepted formats.
 function sniffType(b: Uint8Array): string | null {
   if (b.length >= 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return "application/pdf";

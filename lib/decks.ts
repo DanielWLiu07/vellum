@@ -1,5 +1,5 @@
 /**
- * Flashcard decks for Vellum's dashboard (content creation, not just upload).
+ * Flashcard decks for Vitals's dashboard (content creation, not just upload).
  *
  * Demo-grade in-memory store (per serverless instance), mirroring lib/store.ts.
  * Decks are part of the same shared pool everyone can see. A production build

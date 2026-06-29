@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CreateContent } from "@/components/create-content";
 
 export const metadata: Metadata = {
-  title: "Vellum - add content",
+  title: "Vitals - add content",
   description: "Add a document or flashcards to the shared resource pool.",
 };
 
@@ -13,7 +13,7 @@ export default function UploadPage() {
   return (
     <main className="dash-page">
       <nav className="dash-topnav">
-        <Link href="/" className="dash-brand">Vellum</Link>
+        <Link href="/" className="dash-brand">Vitals</Link>
         <span className="dash-topnav-links">
           <Link href="/dashboard" className="dash-back">Dashboard</Link>
           <Link href="/guidelines" className="dash-back">Guidelines</Link>

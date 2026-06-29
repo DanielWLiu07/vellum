@@ -1,5 +1,5 @@
 /**
- * Storage backend contract for Vellum's dashboard-mode uploads.
+ * Storage backend contract for Vitals's dashboard-mode uploads.
  *
  * The dashboard needs somewhere to keep uploaded PDFs so you can list, view,
  * and delete them. Two interchangeable backends implement this:

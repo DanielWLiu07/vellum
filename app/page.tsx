@@ -7,7 +7,7 @@ export default function Home() {
   return (
     <main className="landing">
       <span className="pill">microservice · pdf.js · zero-knowledge</span>
-      <h1>Vellum</h1>
+      <h1>Vitals</h1>
       <p className="tagline">
         A stateless, zero-knowledge secure document viewer. Embed gated PDFs with per-user
         watermarking and download prevention - without handing the viewer your data or your keys.
@@ -43,7 +43,7 @@ export default function Home() {
           <em>fragment</em>, so it never reaches a server log or a Referer header.
         </li>
         <li>
-          Vellum verifies the signature, fetches the document <em>server-side</em> through its proxy
+          Vitals verifies the signature, fetches the document <em>server-side</em> through its proxy
           (the real URL never reaches the browser), and renders pages to <code>&lt;canvas&gt;</code>{" "}
           with pdf.js.
         </li>
@@ -55,7 +55,7 @@ export default function Home() {
 
       <h2>Why it&rsquo;s &ldquo;zero-knowledge&rdquo;</h2>
       <p>
-        Vellum holds no database and no storage credentials. It can&rsquo;t enumerate your documents
+        Vitals holds no database and no storage credentials. It can&rsquo;t enumerate your documents
         or your users. It serves exactly one document, to one holder of one signed token, for a few
         minutes - and nothing else. Rotating the shared secret instantly invalidates every
         outstanding link.
@@ -64,7 +64,7 @@ export default function Home() {
       <h2>What it is (and isn&rsquo;t)</h2>
       <p>
         No browser viewer can make bytes truly un-extractable - if a page renders, the pixels exist.
-        Vellum raises the bar to the industry-standard &ldquo;good enough&rdquo;: no raw file URL is
+        Vitals raises the bar to the industry-standard &ldquo;good enough&rdquo;: no raw file URL is
         ever exposed, links expire, and every page carries a personalized watermark that makes leaked
         screenshots traceable. It deters casual copying and makes redistribution accountable.
       </p>

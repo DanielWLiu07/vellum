@@ -21,7 +21,7 @@ const log: AuditEvent[] = (g.__vellumAudit ??= seed());
 function seed(): AuditEvent[] {
   const now = Date.now();
   return [
-    { id: "seed_3", action: "document.share", target: "Vellum - overview (sample)", actor: "system", at: now - 1000 * 60 * 9 },
+    { id: "seed_3", action: "document.share", target: "Vitals - overview (sample)", actor: "system", at: now - 1000 * 60 * 9 },
     { id: "seed_2", action: "deck.create", target: "HOSA - sample terms", actor: "system", at: now - 1000 * 60 * 70 },
     { id: "seed_1", action: "document.upload", target: "Lab safety briefing", actor: "system", at: now - 1000 * 60 * 60 * 26 },
   ];

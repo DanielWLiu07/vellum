@@ -1,5 +1,5 @@
 {
-  "name": "vellum",
+  "name": "vitals",
   "version": "0.1.0",
   "private": false,
   "description": "A stateless, zero-knowledge secure document viewer microservice. HMAC capability tokens, server-side proxying, client-side pdf.js rendering with per-user watermarking and download prevention.",

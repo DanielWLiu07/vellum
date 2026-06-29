@@ -2,15 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Vellum - content guidelines",
-  description: "What you can and can't share in the Vellum resource pool.",
+  title: "Vitals - content guidelines",
+  description: "What you can and can't share in the Vitals resource pool.",
 };
 
 export default function GuidelinesPage() {
   return (
     <main className="dash-page">
       <nav className="dash-topnav">
-        <Link href="/" className="dash-brand">Vellum</Link>
+        <Link href="/" className="dash-brand">Vitals</Link>
         <span className="dash-topnav-links">
           <Link href="/dashboard" className="dash-back">Dashboard</Link>
           <Link href="/upload" className="dash-back">Upload</Link>

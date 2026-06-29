@@ -45,7 +45,7 @@ export function Demo() {
           key={src + mode}
           className="demo-frame"
           src={src}
-          title="Vellum viewer demo"
+          title="Vitals viewer demo"
           // Sandboxed: scripts run (the viewer needs them) but the framed page
           // can't navigate the top window or trigger downloads.
           sandbox="allow-scripts allow-same-origin"
