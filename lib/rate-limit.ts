@@ -4,7 +4,7 @@
  * Keyed per client IP + bucket name. Deliberately demo-grade: the counters live
  * in the process, so they're per-serverless-instance and reset on cold start. A
  * production deployment behind multiple instances would back this with a shared
- * store (e.g. Upstash Redis / Cloudflare KV) — the call sites wouldn't change.
+ * store (e.g. Upstash Redis / Cloudflare KV) - the call sites wouldn't change.
  */
 
 interface Window {
@@ -47,7 +47,7 @@ export function clientIp(req: Request): string {
   return req.headers.get("x-real-ip") ?? "unknown";
 }
 
-/** Clear all counters — test helper. */
+/** Clear all counters - test helper. */
 export function __resetRateLimit(): void {
   windows.clear();
 }

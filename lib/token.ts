@@ -1,5 +1,5 @@
 /**
- * Capability tokens — the trust boundary of the viewer.
+ * Capability tokens - the trust boundary of the viewer.
  *
  * A capability token is a signed, self-contained grant: "whoever holds this may
  * view THIS document, watermarked THIS way, until THIS time." The viewer service
@@ -41,7 +41,7 @@ export interface CapabilityClaims {
   exp: number;
   /** Issued-at, unix seconds. */
   iat: number;
-  /** Token id — opaque, for the host app's own audit logging. */
+  /** Token id - opaque, for the host app's own audit logging. */
   jti: string;
 }
 
@@ -73,7 +73,7 @@ export interface MintOptions {
 
 /**
  * Mint a signed capability token. Called by the HOST app (e.g. HOSA), not the
- * viewer — but lives here so host and viewer share one canonical implementation.
+ * viewer - but lives here so host and viewer share one canonical implementation.
  */
 export function mintToken(secret: string, opts: MintOptions): string {
   if (!secret || secret.length < 16) {
@@ -103,7 +103,7 @@ export type VerifyResult =
 
 /**
  * Verify a capability token: structural shape, signature (constant-time), and
- * expiry. Returns a discriminated result — never throws on bad input.
+ * expiry. Returns a discriminated result - never throws on bad input.
  */
 export function verifyToken(secret: string, token: string, now?: number): VerifyResult {
   if (!secret) return { ok: false, reason: "bad_signature" };
@@ -117,7 +117,7 @@ export function verifyToken(secret: string, token: string, now?: number): Verify
   const expected = sign(`${version}.${payload}`, secret);
   const a = Buffer.from(sig);
   const b = Buffer.from(expected);
-  // Length check first — timingSafeEqual throws on length mismatch.
+  // Length check first - timingSafeEqual throws on length mismatch.
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
     return { ok: false, reason: "bad_signature" };
   }

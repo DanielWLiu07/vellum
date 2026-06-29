@@ -25,7 +25,7 @@ describe("isPrivateHost", () => {
     "example.com",
     "bucket.r2.cloudflarestorage.com",
     "8.8.8.8",
-    "172.32.0.1", // just outside the private 172.16–31 range
+    "172.32.0.1", // just outside the private 172.16-31 range
     "172.15.0.1",
     "vellum-rust.vercel.app",
   ])("allows %s", (h) => {

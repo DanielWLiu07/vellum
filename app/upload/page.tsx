@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CreateContent } from "@/components/create-content";
 
 export const metadata: Metadata = {
-  title: "Vellum — add content",
+  title: "Vellum - add content",
   description: "Add a document or flashcards to the shared resource pool.",
 };
 

@@ -2,11 +2,11 @@
  * SSRF guard for the proxy's source URL.
  *
  * The capability token is HMAC-signed, so only a holder of the shared secret can
- * set `src` — that's the primary control. This is defense-in-depth: if the
+ * set `src` - that's the primary control. This is defense-in-depth: if the
  * secret ever leaks, an attacker could mint a token pointing `src` at an
  * internal address (cloud metadata, a private service) and use the proxy as an
  * SSRF pivot. So we additionally refuse non-http(s) schemes and private /
- * loopback / link-local hosts — except the service's own origin, which the live
+ * loopback / link-local hosts - except the service's own origin, which the live
  * demo legitimately fetches (its sample doc is served same-origin).
  */
 

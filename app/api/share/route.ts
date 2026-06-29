@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Mints a capability token for a stored document and returns the embeddable
-// viewer URL. This is the same token flow a host app uses — the dashboard is
+// viewer URL. This is the same token flow a host app uses; the dashboard is
 // just driving it locally.
 export async function POST(req: NextRequest) {
   if (process.env.VELLUM_DEMO_MODE !== "1") {

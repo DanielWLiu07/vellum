@@ -1,7 +1,7 @@
 /**
  * Client-side, UNVERIFIED claim decoding.
  *
- * The browser can't (and shouldn't) verify the HMAC — that's the proxy's job,
+ * The browser can't (and shouldn't) verify the HMAC - that's the proxy's job,
  * and the proxy refuses to return bytes for an invalid token. But the viewer UI
  * needs the watermark text and permission hints to render, so it reads them from
  * the token payload without trusting them for security. Hiding the download

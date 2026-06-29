@@ -24,7 +24,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("POST /api/proxy — auth + token", () => {
+describe("POST /api/proxy - auth + token", () => {
   it("500s when the service isn't configured", async () => {
     delete process.env.VELLUM_TOKEN_SECRET;
     const res = await POST(reqWith({ t: "x" }));
@@ -50,7 +50,7 @@ describe("POST /api/proxy — auth + token", () => {
   });
 });
 
-describe("POST /api/proxy — SSRF guard", () => {
+describe("POST /api/proxy - SSRF guard", () => {
   it("403s a token pointing at a private/internal host", async () => {
     const token = mintToken(SECRET, { src: "http://169.254.169.254/latest/meta-data/" });
     const res = await POST(reqWith({ t: token }));
@@ -59,7 +59,7 @@ describe("POST /api/proxy — SSRF guard", () => {
   });
 });
 
-describe("POST /api/proxy — fetch + stream", () => {
+describe("POST /api/proxy - fetch + stream", () => {
   it("streams the document for a valid token + public source", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(PDF, { status: 200, headers: { "content-length": String(PDF.length) } }),

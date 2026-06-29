@@ -4,7 +4,7 @@ import { Figtree, PT_Sans } from "next/font/google";
 import "./globals.css";
 
 // A warm, professional type pairing: a geometric display face for headings and
-// a humanist sans for body — chosen to sit comfortably inside a teal/maroon
+// a humanist sans for body - chosen to sit comfortably inside a teal/maroon
 // institutional palette.
 const figtree = Figtree({
   subsets: ["latin"],
@@ -19,7 +19,7 @@ const ptSans = PT_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Vellum — secure document viewer",
+  title: "Vellum - secure document viewer",
   description:
     "A stateless, zero-knowledge secure document viewer microservice. Capability tokens, server-side proxying, watermarking, and download prevention.",
 };

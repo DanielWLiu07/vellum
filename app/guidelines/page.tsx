@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Vellum — content guidelines",
+  title: "Vellum - content guidelines",
   description: "What you can and can't share in the Vellum resource pool.",
 };
 
@@ -29,7 +29,7 @@ export default function GuidelinesPage() {
         <ul>
           <li>Study notes and guides you wrote yourself.</li>
           <li>
-            <strong>Your own notes or summaries based on a textbook</strong> — written in your own
+            <strong>Your own notes or summaries based on a textbook</strong> - written in your own
             words. (Just not scanned pages, photos, or copied verbatim passages or figures.)
           </li>
           <li>HOSA-relevant educational material you have the right to distribute.</li>
@@ -50,7 +50,7 @@ export default function GuidelinesPage() {
         <ul>
           <li>Uploads appear under <strong>Resources</strong> for all members.</li>
           <li>Secure links are <strong>watermarked per viewer</strong> and <strong>expire</strong> automatically.</li>
-          <li>Download, print, and copy are <strong>off by default</strong> — you choose what a link allows.</li>
+          <li>Download, print, and copy are <strong>off by default</strong> - you choose what a link allows.</li>
           <li>The source file URL is never exposed to the browser.</li>
         </ul>
 

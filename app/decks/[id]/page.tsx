@@ -4,7 +4,7 @@ import Link from "next/link";
 import { DeckStudy } from "@/components/deck-study";
 
 export const metadata: Metadata = {
-  title: "Vellum — study",
+  title: "Vellum - study",
   description: "Study a flashcard deck.",
 };
 

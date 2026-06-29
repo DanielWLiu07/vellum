@@ -1,5 +1,5 @@
 /**
- * Document proxy — the one server endpoint that touches the actual bytes.
+ * Document proxy - the one server endpoint that touches the actual bytes.
  *
  * The browser never learns the real source URL. The client reads the capability
  * token from the URL fragment and POSTs it here; we verify the signature, fetch
@@ -16,7 +16,7 @@ import { verifyToken } from "@/lib/token";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_BYTES = 100 * 1024 * 1024; // 100 MB ceiling — refuse absurd sources.
+const MAX_BYTES = 100 * 1024 * 1024; // 100 MB ceiling - refuse absurd sources.
 
 export async function POST(req: NextRequest) {
   const secret = process.env.VELLUM_TOKEN_SECRET;

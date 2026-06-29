@@ -10,7 +10,7 @@ export default function Home() {
       <h1>Vellum</h1>
       <p className="tagline">
         A stateless, zero-knowledge secure document viewer. Embed gated PDFs with per-user
-        watermarking and download prevention — without handing the viewer your data or your keys.
+        watermarking and download prevention - without handing the viewer your data or your keys.
       </p>
 
       {demoEnabled && (
@@ -22,7 +22,7 @@ export default function Home() {
 
       <p style={{ marginTop: 8, color: "var(--ink-soft)", fontSize: 14 }}>
         Two ways to use it: a standalone <Link href="/dashboard" style={{ color: "var(--maroon)" }}>dashboard</Link>{" "}
-        to upload, manage, and securely share your own documents — or an <em>embedded</em> stateless
+        to upload, manage, and securely share your own documents - or an <em>embedded</em> stateless
         viewer a host app drives with signed tokens (the demo below).
       </p>
 
@@ -36,7 +36,7 @@ export default function Home() {
       <ol>
         <li>
           Your app presigns a short-lived URL for the document and wraps it in an HMAC-signed{" "}
-          <code>capability token</code> — source URL, watermark text, permissions, and an expiry.
+          <code>capability token</code> - source URL, watermark text, permissions, and an expiry.
         </li>
         <li>
           Your app frames <code>/embed#t=&lt;token&gt;</code>. The token rides in the URL{" "}
@@ -57,13 +57,13 @@ export default function Home() {
       <p>
         Vellum holds no database and no storage credentials. It can&rsquo;t enumerate your documents
         or your users. It serves exactly one document, to one holder of one signed token, for a few
-        minutes — and nothing else. Rotating the shared secret instantly invalidates every
+        minutes - and nothing else. Rotating the shared secret instantly invalidates every
         outstanding link.
       </p>
 
       <h2>What it is (and isn&rsquo;t)</h2>
       <p>
-        No browser viewer can make bytes truly un-extractable — if a page renders, the pixels exist.
+        No browser viewer can make bytes truly un-extractable - if a page renders, the pixels exist.
         Vellum raises the bar to the industry-standard &ldquo;good enough&rdquo;: no raw file URL is
         ever exposed, links expire, and every page carries a personalized watermark that makes leaked
         screenshots traceable. It deters casual copying and makes redistribution accountable.

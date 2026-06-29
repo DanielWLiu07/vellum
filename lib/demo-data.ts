@@ -26,7 +26,7 @@ export interface AssignedItem {
 }
 
 export const STUDENT_ASSIGNMENTS: AssignedItem[] = [
-  { id: "a1", title: "Vellum — overview (sample)", kind: "document", docId: "sample", from: "Coach Rivera", due: "Jun 30", status: "in_progress" },
+  { id: "a1", title: "Vellum - overview (sample)", kind: "document", docId: "sample", from: "Coach Rivera", due: "Jun 30", status: "in_progress" },
   { id: "a2", title: "Intro to ECG interpretation", kind: "document", docId: "sample", from: "Coach Rivera", due: "Jul 4", status: "not_started" },
   { id: "a3", title: "Anatomy unit 2 quiz", kind: "quiz", from: "Coach Rivera", due: "Jul 2", status: "not_started" },
   { id: "a4", title: "Lab safety briefing", kind: "document", docId: "sample", from: "HOSA Canada", due: null, status: "done" },
@@ -51,7 +51,7 @@ export interface ChapterTrainer {
   id: string;
   name: string;
   members: number;
-  completion: number; // 0–100
+  completion: number; // 0-100
 }
 
 export const ADVISOR_TRAINERS: ChapterTrainer[] = [

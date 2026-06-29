@@ -1,6 +1,6 @@
 // R2 backend logic, exercised against a fake in-memory S3 (the AWS SDK is
 // mocked). Verifies put/head/getBytes/list/remove, the upload cap, metadata
-// (name) round-tripping, and missing-object handling — without a real bucket.
+// (name) round-tripping, and missing-object handling - without a real bucket.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

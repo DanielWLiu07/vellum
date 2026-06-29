@@ -44,7 +44,7 @@ describe("verifyToken rejections", () => {
   it("rejects a tampered payload", () => {
     const token = mintToken(SECRET, { src: SRC });
     const [v, payload, sig] = token.split(".");
-    // Flip a character in the payload — signature no longer matches.
+    // Flip a character in the payload - signature no longer matches.
     const tampered = `${v}.${payload.slice(0, -1)}${payload.slice(-1) === "A" ? "B" : "A"}.${sig}`;
     expect(verifyToken(SECRET, tampered).ok).toBe(false);
   });
