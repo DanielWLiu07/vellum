@@ -35,15 +35,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 // Deletes an uploaded document (dashboard mode only). Bundled samples are
-// immutable, so deleteDoc returns false for them → 404.
+// immutable, so deleteDoc returns false for them and the caller gets a 404.
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
   }
   const { id } = await params;
   const doc = await getDoc(id);
+  if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (!canView(doc, DEMO_VIEWER)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const ok = await deleteDoc(id);
   if (!ok) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  recordAudit("document.delete", doc?.name ?? id, clientIp(_req));
+  recordAudit("document.delete", doc.name, clientIp(_req));
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }

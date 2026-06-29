@@ -33,7 +33,7 @@ export function Demo() {
     <div>
       <div className="row">
         <button className="cta" onClick={() => open("scroll")} disabled={loading}>
-          {loading ? "Loading…" : "Launch demo"}
+          {loading ? "Loading..." : "Launch demo"}
         </button>
         <button className="cta secondary" onClick={() => open("slides")} disabled={loading}>
           Launch as slideshow
