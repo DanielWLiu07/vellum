@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { recordAudit } from "@/lib/audit";
 import { clientIp } from "@/lib/rate-limit";
+import { setShare } from "@/lib/resource-share";
 import { deleteDoc, getDoc, getDocBytes } from "@/lib/store";
-import { DEMO_VIEWER, canView } from "@/lib/visibility";
+import { DEMO_VIEWER, canView, normalizeVisibility } from "@/lib/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,4 +49,24 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!ok) return NextResponse.json({ error: "not_found" }, { status: 404 });
   recordAudit("document.delete", doc.name, clientIp(_req));
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+}
+
+// Change a document's sharing scope. Only the owner can share their own upload;
+// bundled samples are immutable.
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (process.env.VELLUM_DEMO_MODE !== "1") {
+    return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
+  }
+  const { id } = await params;
+  const doc = await getDoc(id);
+  if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (doc.bundled || doc.owner !== DEMO_VIEWER.owner) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const body = await req.json().catch(() => ({}));
+  const visibility = normalizeVisibility(body?.visibility);
+  const chapter = typeof body?.chapter === "string" ? body.chapter.trim().slice(0, 80) : "";
+  setShare(id, { visibility, chapter });
+  recordAudit("document.share", `${doc.name} (${visibility})`, clientIp(req));
+  return NextResponse.json({ ok: true, visibility, chapter }, { headers: { "Cache-Control": "no-store" } });
 }

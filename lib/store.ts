@@ -9,6 +9,7 @@
  *     ./storage). Set the R2_* env vars to make uploads durable.
  */
 
+import { getShare } from "./resource-share";
 import { backend, type UploadMeta, type UploadScope } from "./storage";
 import type { Visibility } from "./visibility";
 
@@ -44,6 +45,9 @@ const BUNDLED: DocMeta[] = [
 const bundledById = new Map(BUNDLED.map((b) => [b.id, b]));
 
 function toDocMeta(u: UploadMeta): DocMeta {
+  // Uploads start with whatever scope they were stored with (private by default);
+  // a later "share" is recorded in the sidecar and overrides it here.
+  const share = getShare(u.id);
   return {
     id: u.id,
     name: u.name,
@@ -51,8 +55,8 @@ function toDocMeta(u: UploadMeta): DocMeta {
     uploadedAt: u.uploadedAt,
     bundled: false,
     contentType: u.contentType,
-    visibility: u.visibility,
-    chapter: u.chapter,
+    visibility: share?.visibility ?? u.visibility,
+    chapter: share?.chapter ?? u.chapter,
     owner: u.owner,
   };
 }

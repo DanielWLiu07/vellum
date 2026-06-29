@@ -4,7 +4,6 @@ import { recordAudit } from "@/lib/audit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { addUpload } from "@/lib/store";
 import { setThumbnail } from "@/lib/thumbnails";
-import { normalizeVisibility } from "@/lib/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,12 +55,8 @@ export async function POST(req: NextRequest) {
   // Optional display name override; falls back to the file name.
   const nameField = form?.get("name");
   const name = typeof nameField === "string" && nameField.trim() ? nameField.trim() : file.name;
-  const chapterField = form?.get("chapter");
-  const scope = {
-    visibility: normalizeVisibility(form?.get("visibility")),
-    chapter: typeof chapterField === "string" ? chapterField.trim().slice(0, 80) : "",
-    owner: "you",
-  };
+  // Uploads start private; the owner shares them afterward from My resources.
+  const scope = { visibility: "private" as const, chapter: "", owner: "you" };
   const meta = await addUpload(name, bytes, contentType, scope);
   const thumbField = form?.get("thumbnailId");
   if (typeof thumbField === "string" && thumbField) setThumbnail(meta.id, thumbField.slice(0, 64));

@@ -8,6 +8,7 @@ import { FlashcardsView } from "./flashcards-view";
 import { QuizzesView } from "./quizzes-view";
 import {
   DEMO_VIEWER,
+  VISIBILITIES,
   filterScoped,
   type FilterMode,
   type Visibility,
@@ -39,10 +40,8 @@ interface Doc {
 const VIS_LABEL: Record<Visibility, string> = { public: "Public", chapter: "Chapter", private: "Private" };
 
 const FILTERS: { id: FilterMode; label: string }[] = [
-  { id: "accessible", label: "All I can see" },
-  { id: "public", label: "Public" },
-  { id: "chapter", label: "My chapter" },
-  { id: "mine", label: "Mine" },
+  { id: "accessible", label: "All resources" },
+  { id: "mine", label: "My resources" },
 ];
 
 /* ---------------------------------------------------------------- toasts */
@@ -171,6 +170,7 @@ export function Dashboard() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [viewer, setViewer] = useState<string | null>(null);
   const [shareDoc, setShareDoc] = useState<Doc | null>(null);
+  const [shareScopeDoc, setShareScopeDoc] = useState<Doc | null>(null);
   const [assignTo, setAssignTo] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -295,7 +295,7 @@ export function Dashboard() {
 
         <main className="dash-main">
           <p className="dash-sub" style={{ marginBottom: 20 }}>{active.blurb}</p>
-          {role === "student" && <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} />}
+          {role === "student" && <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />}
           {role === "trainer" && <TrainerView section={section} {...shared} onAssign={setAssignTo} />}
           {role === "advisor" && <AdvisorView section={section} {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />}
           {role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
@@ -305,6 +305,13 @@ export function Dashboard() {
       {viewer && <ViewerModal src={viewer} onClose={() => setViewer(null)} />}
 
       {shareDoc && <ShareModal doc={shareDoc} onClose={() => setShareDoc(null)} onView={view} notify={notify} />}
+      {shareScopeDoc && (
+        <ShareScopeModal
+          doc={shareScopeDoc}
+          onClose={() => setShareScopeDoc(null)}
+          onSaved={(v) => { setShareScopeDoc(null); notify(`Sharing set to ${v}`); void refresh(); }}
+        />
+      )}
       {assignTo && (
         <AssignModal
           memberName={TRAINER_ROSTER.find((m) => m.id === assignTo)?.name ?? "member"}
@@ -417,7 +424,7 @@ function ViewerModal({ src, onClose }: { src: string; onClose: () => void }) {
 
 /* ---------------------------------------------------------------- role views */
 
-function StudentView({ section, docs, onView, onStart, uploading, onUploadClick }: { section: string; docs: Doc[]; onView: (id: string, wm?: string) => void; onStart: (title: string) => void; uploading: boolean; onUploadClick: () => void }) {
+function StudentView({ section, docs, onView, onStart, uploading, onUploadClick, onShareScope }: { section: string; docs: Doc[]; onView: (id: string, wm?: string) => void; onStart: (title: string) => void; uploading: boolean; onUploadClick: () => void; onShareScope: (d: Doc) => void }) {
   const done = STUDENT_ASSIGNMENTS.filter((a) => a.status === "done").length;
   const total = STUDENT_ASSIGNMENTS.length;
   const pct = Math.round((done / total) * 100);
@@ -487,19 +494,42 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
 
   if (section === "resources") {
     const term = q.trim().toLowerCase();
+    const counts: Record<FilterMode, number> = {
+      accessible: filterScoped(docs, DEMO_VIEWER, "accessible").length,
+      mine: filterScoped(docs, DEMO_VIEWER, "mine").length,
+      public: 0,
+      chapter: 0,
+    };
     const visible = filterScoped(docs, DEMO_VIEWER, mode).filter(
       (d) => !term || d.name.toLowerCase().includes(term),
     );
+    const mineEmpty = mode === "mine" && visible.length === 0 && !term;
     return (
       <section className="role-section">
         <div className="section-head">
           <h2>Resources</h2>
           <button className="cta" disabled={uploading} onClick={onUploadClick}>
-            {uploading ? "Uploading..." : "+ Share a resource"}
+            {uploading ? "Uploading..." : "+ Upload a resource"}
           </button>
         </div>
-        <p className="dash-sub" style={{ marginTop: -4, marginBottom: 12 }}>
-          A shared pool scoped by visibility. You are viewing as a member of {DEMO_VIEWER.chapter}.
+        <div className="seg-toggle" role="tablist" aria-label="Resource scope">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="tab"
+              aria-selected={mode === f.id}
+              className={`seg-btn${mode === f.id ? " is-active" : ""}`}
+              onClick={() => setMode(f.id)}
+            >
+              {f.label} <span className="seg-count">{counts[f.id]}</span>
+            </button>
+          ))}
+        </div>
+        <p className="dash-sub" style={{ marginTop: 10, marginBottom: 12 }}>
+          {mode === "mine"
+            ? "Files you uploaded. They start private; use Share to let your chapter or everyone see them."
+            : `Everything shared with you, viewing as a member of ${DEMO_VIEWER.chapter}.`}
         </p>
         <div className="resource-toolbar">
           <input
@@ -510,27 +540,22 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
             placeholder="Search resources"
             aria-label="Search resources"
           />
-          <div className="filter-chips">
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                className={`chip${mode === f.id ? " is-active" : ""}`}
-                onClick={() => setMode(f.id)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
         </div>
         <div className="tile-grid">
           {visible.map((d) => (
             <LessonCard key={d.id} title={d.name} thumbId={d.thumbnailId}
               badge={<span className={`badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>{VIS_LABEL[d.visibility]}</span>}
-              sub={`${d.bundled ? "HOSA official" : "Shared by a member"}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}`}
-              actions={<button className="btn primary" onClick={() => onView(d.id)}>Open</button>} />
+              sub={`${d.bundled ? "HOSA official" : d.owner === DEMO_VIEWER.owner ? "Your upload" : "Shared by a member"}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}`}
+              actions={
+                <>
+                  <button className="btn primary" onClick={() => onView(d.id)}>Open</button>
+                  {d.owner === DEMO_VIEWER.owner && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
+                </>
+              } />
           ))}
-          {visible.length === 0 && <div className="empty-state">No resources match.</div>}
+          {mineEmpty
+            ? <div className="empty-state">You have not uploaded anything yet. Use Upload a resource to add one.</div>
+            : visible.length === 0 && <div className="empty-state">No resources match.</div>}
         </div>
       </section>
     );
@@ -662,6 +687,50 @@ function AdminView({ section, onRole, ...shared }: SharedProps & { section: stri
 }
 
 /* ---------------------------------------------------------------- modals */
+
+function ShareScopeModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; onSaved: (visibility: Visibility) => void }) {
+  const [visibility, setVisibility] = useState<Visibility>(doc.visibility);
+  const [chapter, setChapter] = useState(doc.chapter || "");
+  const [busy, setBusy] = useState(false);
+  const ref = useModal(onClose);
+
+  async function save() {
+    setBusy(true);
+    const res = await fetch(`/api/doc/${doc.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility, chapter }),
+    }).catch(() => null);
+    setBusy(false);
+    if (res?.ok) onSaved(visibility);
+  }
+
+  return (
+    <div className="dash-modal-backdrop" onClick={onClose}>
+      <div className="dash-modal" ref={ref} role="dialog" aria-modal="true" aria-label={`Share ${doc.name}`} onClick={(e) => e.stopPropagation()}>
+        <h2>Share {doc.name}</h2>
+        <p className="dash-muted" style={{ padding: 0, marginTop: 4 }}>Choose who can see this resource.</p>
+        <div className="visibility-options" style={{ marginTop: 12 }}>
+          {VISIBILITIES.map((v) => (
+            <label key={v.id} className={`visibility-option${visibility === v.id ? " is-active" : ""}`}>
+              <input type="radio" name="share-visibility" checked={visibility === v.id} onChange={() => setVisibility(v.id)} />
+              <span className="visibility-label">{v.label}</span>
+              <span className="visibility-hint">{v.hint}</span>
+            </label>
+          ))}
+        </div>
+        {visibility === "chapter" && (
+          <label className="dash-field" style={{ marginTop: 10 }}><span>Chapter</span>
+            <input value={chapter} onChange={(e) => setChapter(e.target.value)} placeholder="e.g. Toronto Central" maxLength={80} /></label>
+        )}
+        <div className="dash-modal-actions">
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="cta" disabled={busy} onClick={save}>{busy ? "Saving..." : "Save sharing"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () => void; onView: (id: string, wm?: string) => void; notify: (m: string) => void }) {
   const [watermark, setWatermark] = useState("");
