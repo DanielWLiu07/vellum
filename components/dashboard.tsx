@@ -44,6 +44,10 @@ const FILTERS: { id: FilterMode; label: string }[] = [
   { id: "mine", label: "My resources" },
 ];
 
+// Sections an advisor shares with students (they are a student too); anything
+// else in the advisor menu is advisor-only and renders in AdvisorView.
+const STUDENT_SECTIONS = new Set(["home", "assignments", "resources", "flashcards", "quizzes", "skills"]);
+
 /* ---------------------------------------------------------------- toasts */
 
 let toastSeq = 0;
@@ -134,9 +138,17 @@ const NAV: Record<Role, NavItem[]> = {
     { id: "quizzes", label: "Quizzes" },
     { id: "skills", label: "General skills", soon: true },
   ],
+  // An advisor is also a student (some students are advisors), so they get the
+  // full student menu plus their advisor-only sections.
   advisor: [
-    { id: "trainers", label: "Trainers" },
+    { id: "home", label: "Home" },
+    { id: "assignments", label: "My assignments" },
+    { id: "resources", label: "Resources" },
+    { id: "flashcards", label: "Flashcards" },
+    { id: "quizzes", label: "Quizzes" },
+    { id: "trainers", label: "My trainers" },
     { id: "lessons", label: "Chapter lessons" },
+    { id: "skills", label: "General skills", soon: true },
   ],
   admin: [
     { id: "overview", label: "Overview" },
@@ -297,7 +309,9 @@ export function Dashboard() {
           <p className="dash-sub" style={{ marginBottom: 20 }}>{active.blurb}</p>
           {role === "student" && <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />}
           {role === "trainer" && <TrainerView section={section} {...shared} onAssign={setAssignTo} />}
-          {role === "advisor" && <AdvisorView section={section} {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />}
+          {role === "advisor" && (STUDENT_SECTIONS.has(section)
+            ? <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />
+            : <AdvisorView section={section} {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />)}
           {role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
         </main>
       </div>
