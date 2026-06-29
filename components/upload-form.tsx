@@ -3,11 +3,15 @@
 import Link from "next/link";
 import * as React from "react";
 
+import { VISIBILITIES, type Visibility } from "@/lib/visibility";
+
 const MAX_BYTES = 25 * 1024 * 1024;
 
 export function UploadForm() {
   const [file, setFile] = React.useState<File | null>(null);
   const [name, setName] = React.useState("");
+  const [visibility, setVisibility] = React.useState<Visibility>("public");
+  const [chapter, setChapter] = React.useState("");
   const [watermark, setWatermark] = React.useState("");
   const [download, setDownload] = React.useState(false);
   const [print, setPrint] = React.useState(false);
@@ -42,6 +46,8 @@ export function UploadForm() {
       const fd = new FormData();
       fd.set("file", file);
       if (name.trim()) fd.set("name", name.trim());
+      fd.set("visibility", visibility);
+      if (visibility === "chapter" && chapter.trim()) fd.set("chapter", chapter.trim());
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -120,6 +126,23 @@ export function UploadForm() {
 
       <label className="dash-field"><span>Display name</span>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ECG interpretation guide" /></label>
+
+      <div className="upload-settings">
+        <p className="upload-settings-title">Who can see it</p>
+        <div className="visibility-options">
+          {VISIBILITIES.map((v) => (
+            <label key={v.id} className={`visibility-option${visibility === v.id ? " is-active" : ""}`}>
+              <input type="radio" name="visibility" checked={visibility === v.id} onChange={() => setVisibility(v.id)} />
+              <span className="visibility-label">{v.label}</span>
+              <span className="visibility-hint">{v.hint}</span>
+            </label>
+          ))}
+        </div>
+        {visibility === "chapter" && (
+          <label className="dash-field"><span>Chapter</span>
+            <input value={chapter} onChange={(e) => setChapter(e.target.value)} placeholder="e.g. Toronto Central" maxLength={80} /></label>
+        )}
+      </div>
 
       <div className="upload-settings">
         <p className="upload-settings-title">Sharing settings</p>

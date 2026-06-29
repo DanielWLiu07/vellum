@@ -10,6 +10,15 @@
  * /public and stitched in at the store layer. Backends only deal with uploads.
  */
 
+import type { Visibility } from "../visibility";
+
+/** Visibility scope set at upload time. */
+export interface UploadScope {
+  visibility: Visibility;
+  chapter: string;
+  owner: string;
+}
+
 /** Metadata for one uploaded document (never carries the bytes). */
 export interface UploadMeta {
   id: string;
@@ -18,6 +27,9 @@ export interface UploadMeta {
   uploadedAt: number;
   /** MIME type, e.g. application/pdf or image/png. */
   contentType: string;
+  visibility: Visibility;
+  chapter: string;
+  owner: string;
 }
 
 export interface StorageBackend {
@@ -28,10 +40,12 @@ export interface StorageBackend {
   /** The raw bytes of one upload, or undefined if it doesn't exist. */
   getBytes(id: string): Promise<Uint8Array | undefined>;
   /** Store a new upload; returns its metadata. */
-  put(name: string, bytes: Uint8Array, contentType?: string): Promise<UploadMeta>;
+  put(name: string, bytes: Uint8Array, contentType?: string, scope?: UploadScope): Promise<UploadMeta>;
   /** Delete an upload; returns whether it existed. */
   remove(id: string): Promise<boolean>;
 }
+
+export const DEFAULT_SCOPE: UploadScope = { visibility: "public", chapter: "", owner: "system" };
 
 /** Cap so a long-lived deployment can't grow unbounded. */
 export const MAX_UPLOADS = 25;

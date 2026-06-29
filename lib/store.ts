@@ -9,7 +9,8 @@
  *     ./storage). Set the R2_* env vars to make uploads durable.
  */
 
-import { backend, type UploadMeta } from "./storage";
+import { backend, type UploadMeta, type UploadScope } from "./storage";
+import type { Visibility } from "./visibility";
 
 export interface DocMeta {
   id: string;
@@ -21,6 +22,9 @@ export interface DocMeta {
   bundled: boolean;
   /** MIME type - application/pdf or an image/* type. */
   contentType: string;
+  visibility: Visibility;
+  chapter: string;
+  owner: string;
 }
 
 const BUNDLED: DocMeta[] = [
@@ -32,6 +36,9 @@ const BUNDLED: DocMeta[] = [
     uploadedAt: 0,
     bundled: true,
     contentType: "application/pdf",
+    visibility: "public",
+    chapter: "",
+    owner: "system",
   },
 ];
 const bundledById = new Map(BUNDLED.map((b) => [b.id, b]));
@@ -44,6 +51,9 @@ function toDocMeta(u: UploadMeta): DocMeta {
     uploadedAt: u.uploadedAt,
     bundled: false,
     contentType: u.contentType,
+    visibility: u.visibility,
+    chapter: u.chapter,
+    owner: u.owner,
   };
 }
 
@@ -67,8 +77,13 @@ export async function getDocBytes(id: string): Promise<Uint8Array | undefined> {
   return backend().getBytes(id);
 }
 
-export async function addUpload(name: string, bytes: Uint8Array, contentType = "application/pdf"): Promise<DocMeta> {
-  return toDocMeta(await backend().put(name, bytes, contentType));
+export async function addUpload(
+  name: string,
+  bytes: Uint8Array,
+  contentType = "application/pdf",
+  scope?: UploadScope,
+): Promise<DocMeta> {
+  return toDocMeta(await backend().put(name, bytes, contentType, scope));
 }
 
 export async function deleteDoc(id: string): Promise<boolean> {

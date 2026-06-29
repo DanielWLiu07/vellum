@@ -1268,3 +1268,56 @@ h3 {
   border-radius: 999px;
   padding: 4px 12px;
 }
+
+/* ------------------------------------------------ visibility + search */
+.visibility-options { display: flex; gap: 8px; flex-wrap: wrap; }
+.visibility-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 130px;
+  transition: border-color 0.12s, background 0.12s;
+}
+.visibility-option:hover { border-color: var(--teal); }
+.visibility-option.is-active { border-color: var(--teal); background: var(--tan-soft); }
+.visibility-option input { margin-right: 6px; }
+.visibility-label { font-size: 14px; font-weight: 700; color: var(--ink); }
+.visibility-hint { font-size: 12px; color: var(--ink-soft); }
+
+.resource-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.search-input {
+  flex: 1;
+  min-width: 180px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 13px;
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.search-input:focus-visible { outline: none; border-color: var(--teal); }
+.filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--teal); }
+.chip.is-active { background: var(--teal); color: var(--on-teal); border-color: var(--teal); }

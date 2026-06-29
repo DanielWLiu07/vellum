@@ -20,4 +20,4 @@ export function backend(): StorageBackend {
   return r2Configured() ? r2Backend : memoryBackend;
 }
 
-export type { StorageBackend, UploadMeta } from "./types";
+export type { StorageBackend, UploadMeta, UploadScope } from "./types";

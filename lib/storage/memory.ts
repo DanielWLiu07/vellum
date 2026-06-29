@@ -7,6 +7,7 @@
  */
 
 import {
+  DEFAULT_SCOPE,
   MAX_UPLOADS,
   cleanName,
   newUploadId,
@@ -23,7 +24,16 @@ const g = globalThis as unknown as { __vellumUploads?: Map<string, Rec> };
 const store: Map<string, Rec> = (g.__vellumUploads ??= new Map());
 
 function meta(r: Rec): UploadMeta {
-  return { id: r.id, name: r.name, sizeBytes: r.sizeBytes, uploadedAt: r.uploadedAt, contentType: r.contentType };
+  return {
+    id: r.id,
+    name: r.name,
+    sizeBytes: r.sizeBytes,
+    uploadedAt: r.uploadedAt,
+    contentType: r.contentType,
+    visibility: r.visibility,
+    chapter: r.chapter,
+    owner: r.owner,
+  };
 }
 
 export const memoryBackend: StorageBackend = {
@@ -37,13 +47,16 @@ export const memoryBackend: StorageBackend = {
   async getBytes(id) {
     return store.get(id)?.bytes;
   },
-  async put(name, bytes, contentType = "application/pdf") {
+  async put(name, bytes, contentType = "application/pdf", scope = DEFAULT_SCOPE) {
     const rec: Rec = {
       id: newUploadId(),
       name: cleanName(name),
       sizeBytes: bytes.byteLength,
       uploadedAt: Date.now(),
       contentType,
+      visibility: scope.visibility,
+      chapter: scope.chapter,
+      owner: scope.owner,
       bytes,
     };
     store.set(rec.id, rec);

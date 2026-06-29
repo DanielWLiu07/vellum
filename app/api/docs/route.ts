@@ -4,7 +4,7 @@ import { listDocs } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-// The dashboard's document list (metadata only — never the bytes).
+// The dashboard's document list (metadata only, never the bytes).
 export async function GET() {
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
@@ -15,6 +15,9 @@ export async function GET() {
     sizeBytes: d.sizeBytes,
     uploadedAt: d.uploadedAt,
     bundled: d.bundled,
+    visibility: d.visibility,
+    chapter: d.chapter,
+    owner: d.owner,
   }));
   return NextResponse.json({ docs }, { headers: { "Cache-Control": "no-store" } });
 }

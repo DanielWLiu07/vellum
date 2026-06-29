@@ -5,6 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityLog } from "./activity-log";
 import { FlashcardsView } from "./flashcards-view";
 import {
+  DEMO_VIEWER,
+  filterScoped,
+  type FilterMode,
+  type Visibility,
+} from "@/lib/visibility";
+import {
   ADMIN_STATS,
   ADMIN_USERS,
   ADVISOR_TRAINERS,
@@ -21,7 +27,19 @@ interface Doc {
   sizeBytes: number;
   uploadedAt: number;
   bundled: boolean;
+  visibility: Visibility;
+  chapter: string;
+  owner: string;
 }
+
+const VIS_LABEL: Record<Visibility, string> = { public: "Public", chapter: "Chapter", private: "Private" };
+
+const FILTERS: { id: FilterMode; label: string }[] = [
+  { id: "accessible", label: "All I can see" },
+  { id: "public", label: "Public" },
+  { id: "chapter", label: "My chapter" },
+  { id: "mine", label: "Mine" },
+];
 
 /* ---------------------------------------------------------------- toasts */
 
@@ -383,6 +401,8 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
   const total = STUDENT_ASSIGNMENTS.length;
   const pct = Math.round((done / total) * 100);
   const next = STUDENT_ASSIGNMENTS.find((a) => a.status !== "done");
+  const [q, setQ] = useState("");
+  const [mode, setMode] = useState<FilterMode>("accessible");
 
   if (section === "home") {
     return (
@@ -430,6 +450,10 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
   }
 
   if (section === "resources") {
+    const term = q.trim().toLowerCase();
+    const visible = filterScoped(docs, DEMO_VIEWER, mode).filter(
+      (d) => !term || d.name.toLowerCase().includes(term),
+    );
     return (
       <section className="role-section">
         <div className="section-head">
@@ -439,16 +463,38 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
           </button>
         </div>
         <p className="dash-sub" style={{ marginTop: -4, marginBottom: 12 }}>
-          A shared pool every member can use - anything you upload here is shared with everyone.
-          {" "}{docs.length} resource{docs.length === 1 ? "" : "s"} available.
+          A shared pool scoped by visibility. You are viewing as a member of {DEMO_VIEWER.chapter}.
         </p>
+        <div className="resource-toolbar">
+          <input
+            className="search-input"
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search resources"
+            aria-label="Search resources"
+          />
+          <div className="filter-chips">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`chip${mode === f.id ? " is-active" : ""}`}
+                onClick={() => setMode(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="lesson-grid">
-          {docs.map((d) => (
+          {visible.map((d) => (
             <LessonCard key={d.id} title={d.name}
-              sub={`${d.bundled ? "HOSA official" : "Shared by a member"} · PDF`}
+              badge={<span className={`badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>{VIS_LABEL[d.visibility]}</span>}
+              sub={`${d.bundled ? "HOSA official" : "Shared by a member"}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}`}
               actions={<button className="btn primary" onClick={() => onView(d.id)}>Open</button>} />
           ))}
-          {docs.length === 0 && <div className="empty-state">No resources yet - be the first to share one.</div>}
+          {visible.length === 0 && <div className="empty-state">No resources match.</div>}
         </div>
       </section>
     );

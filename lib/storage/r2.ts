@@ -16,7 +16,9 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 
+import { normalizeVisibility } from "../visibility";
 import {
+  DEFAULT_SCOPE,
   MAX_UPLOADS,
   cleanName,
   newUploadId,
@@ -80,6 +82,9 @@ export const r2Backend: StorageBackend = {
         sizeBytes: res.ContentLength ?? 0,
         uploadedAt: md.uploadedat ? Number(md.uploadedat) : (res.LastModified?.getTime() ?? 0),
         contentType: res.ContentType ?? "application/pdf",
+        visibility: normalizeVisibility(md.visibility),
+        chapter: md.chapter ? decodeURIComponent(md.chapter) : "",
+        owner: md.owner ? decodeURIComponent(md.owner) : "system",
       };
     } catch (err) {
       if (isMissing(err)) return undefined;
@@ -99,7 +104,7 @@ export const r2Backend: StorageBackend = {
     }
   },
 
-  async put(name, bytes, contentType = "application/pdf") {
+  async put(name, bytes, contentType = "application/pdf", scope = DEFAULT_SCOPE) {
     const id = newUploadId();
     const meta: UploadMeta = {
       id,
@@ -107,6 +112,9 @@ export const r2Backend: StorageBackend = {
       sizeBytes: bytes.byteLength,
       uploadedAt: Date.now(),
       contentType,
+      visibility: scope.visibility,
+      chapter: scope.chapter,
+      owner: scope.owner,
     };
     await s3().send(
       new PutObjectCommand({
@@ -114,7 +122,13 @@ export const r2Backend: StorageBackend = {
         Key: keyFor(id),
         Body: bytes,
         ContentType: contentType,
-        Metadata: { name: encodeURIComponent(meta.name), uploadedat: String(meta.uploadedAt) },
+        Metadata: {
+          name: encodeURIComponent(meta.name),
+          uploadedat: String(meta.uploadedAt),
+          visibility: meta.visibility,
+          chapter: encodeURIComponent(meta.chapter),
+          owner: encodeURIComponent(meta.owner),
+        },
       }),
     );
     await evictBeyondCap();
