@@ -1394,3 +1394,33 @@ h3 {
 .chapter-facts > div { display: flex; flex-direction: column; gap: 1px; font-size: 14px; color: var(--ink); }
 .chapter-label { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-soft); }
 .chapter-note { margin-top: 12px; font-size: 13px; color: var(--ink-soft); border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* ------------------------------------------------ quiz editor */
+.quiz-choices { display: flex; flex-direction: column; gap: 6px; }
+.quiz-choice { display: flex; align-items: center; gap: 8px; }
+.quiz-choice input[type="radio"] { flex: 0 0 auto; }
+.quiz-choice .card-input { flex: 1; }
+.quiz-choice-actions { display: flex; gap: 6px; margin-top: 2px; }
+.quiz-hint { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+
+/* ------------------------------------------------ quiz take */
+.quiz-take-list { display: flex; flex-direction: column; gap: 14px; margin: 12px 0; }
+.quiz-take-q {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.quiz-take-q.is-correct { border-left-color: var(--teal); }
+.quiz-take-q.is-wrong { border-left-color: var(--maroon); }
+.quiz-take-prompt { font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.quiz-take-choices { display: flex; flex-direction: column; gap: 4px; }
+.quiz-take-choice {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  border: 1px solid transparent;
+}
+.quiz-take-choice:hover { background: var(--tan-soft); }
+.quiz-take-choice.picked { background: var(--tan-soft); border-color: var(--teal); }
+.quiz-take-choice.key { background: rgba(20, 130, 110, 0.12); border-color: var(--teal); font-weight: 600; }
+.quiz-take-choice.missed { background: rgba(140, 30, 40, 0.10); border-color: var(--maroon); }

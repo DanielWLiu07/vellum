@@ -10,6 +10,8 @@ const ACTION_LABEL: Record<string, string> = {
   "document.share": "Shared document",
   "deck.create": "Created deck",
   "deck.delete": "Deleted deck",
+  "quiz.create": "Created quiz",
+  "quiz.delete": "Deleted quiz",
 };
 
 function ago(ms: number): string {

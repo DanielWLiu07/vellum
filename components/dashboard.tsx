@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ActivityLog } from "./activity-log";
 import { FlashcardsView } from "./flashcards-view";
+import { QuizzesView } from "./quizzes-view";
 import {
   DEMO_VIEWER,
   filterScoped,
@@ -122,12 +123,14 @@ const NAV: Record<Role, NavItem[]> = {
     { id: "assignments", label: "My assignments" },
     { id: "resources", label: "Resources" },
     { id: "flashcards", label: "Flashcards" },
+    { id: "quizzes", label: "Quizzes" },
     { id: "skills", label: "General skills", soon: true },
   ],
   trainer: [
     { id: "lessons", label: "My lessons" },
     { id: "group", label: "My group" },
     { id: "flashcards", label: "Flashcards" },
+    { id: "quizzes", label: "Quizzes" },
     { id: "skills", label: "General skills", soon: true },
   ],
   advisor: [
@@ -517,6 +520,7 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
   }
 
   if (section === "flashcards") return <FlashcardsView />;
+  if (section === "quizzes") return <QuizzesView />;
 
   return <ComingSoon title="General skills" note="Round-2 practice - the buzzer game, doing skills in front of AI, and more. Coming soon." />;
 }
@@ -541,6 +545,7 @@ function TrainerView({ section, onAssign, ...shared }: SharedProps & { section: 
     );
   }
   if (section === "flashcards") return <FlashcardsView />;
+  if (section === "quizzes") return <QuizzesView />;
 
   return <ComingSoon title="General skills" note="Round-2 practice - the buzzer game, skills in front of AI, and more. Coming soon." />;
 }
