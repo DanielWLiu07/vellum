@@ -3,10 +3,10 @@
  *
  * The dashboard needs somewhere to keep uploaded PDFs so you can list, view,
  * and delete them. Two interchangeable backends implement this:
- *   - `memory`  — in-process Map (demo / local; ephemeral)
- *   - `r2`      — Cloudflare R2 (S3-compatible) for real persistence
+ *   - `memory`  - in-process Map (demo / local; ephemeral)
+ *   - `r2`      - Cloudflare R2 (S3-compatible) for real persistence
  *
- * Bundled sample documents are NOT a backend concern — they're served from
+ * Bundled sample documents are NOT a backend concern - they're served from
  * /public and stitched in at the store layer. Backends only deal with uploads.
  */
 
@@ -16,6 +16,8 @@ export interface UploadMeta {
   name: string;
   sizeBytes: number;
   uploadedAt: number;
+  /** MIME type, e.g. application/pdf or image/png. */
+  contentType: string;
 }
 
 export interface StorageBackend {
@@ -26,7 +28,7 @@ export interface StorageBackend {
   /** The raw bytes of one upload, or undefined if it doesn't exist. */
   getBytes(id: string): Promise<Uint8Array | undefined>;
   /** Store a new upload; returns its metadata. */
-  put(name: string, bytes: Uint8Array): Promise<UploadMeta>;
+  put(name: string, bytes: Uint8Array, contentType?: string): Promise<UploadMeta>;
   /** Delete an upload; returns whether it existed. */
   remove(id: string): Promise<boolean>;
 }

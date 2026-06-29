@@ -1,11 +1,11 @@
 /**
  * Document store for Vellum's standalone dashboard mode.
  *
- * Vellum's *embedded* mode is stateless by design — the host app owns the
+ * Vellum's *embedded* mode is stateless by design - the host app owns the
  * documents. Its *dashboard* mode needs somewhere to put uploads so you can
  * manage + share them. This layer stitches together two sources:
  *   - bundled samples (served from /public, defined here)
- *   - uploads, held by the active storage backend (in-memory or R2 — see
+ *   - uploads, held by the active storage backend (in-memory or R2 - see
  *     ./storage). Set the R2_* env vars to make uploads durable.
  */
 
@@ -19,16 +19,19 @@ export interface DocMeta {
   sizeBytes: number;
   uploadedAt: number;
   bundled: boolean;
+  /** MIME type - application/pdf or an image/* type. */
+  contentType: string;
 }
 
 const BUNDLED: DocMeta[] = [
   {
     id: "sample",
-    name: "Vellum — overview (sample)",
+    name: "Vellum - overview (sample)",
     publicPath: "/sample.pdf",
     sizeBytes: 2553,
     uploadedAt: 0,
     bundled: true,
+    contentType: "application/pdf",
   },
 ];
 const bundledById = new Map(BUNDLED.map((b) => [b.id, b]));
@@ -40,6 +43,7 @@ function toDocMeta(u: UploadMeta): DocMeta {
     sizeBytes: u.sizeBytes,
     uploadedAt: u.uploadedAt,
     bundled: false,
+    contentType: u.contentType,
   };
 }
 
@@ -49,7 +53,7 @@ export async function listDocs(): Promise<DocMeta[]> {
   return [...BUNDLED, ...uploads];
 }
 
-/** Metadata for one doc (never the bytes — use getDocBytes for those). */
+/** Metadata for one doc (never the bytes - use getDocBytes for those). */
 export async function getDoc(id: string): Promise<DocMeta | undefined> {
   const b = bundledById.get(id);
   if (b) return b;
@@ -63,8 +67,8 @@ export async function getDocBytes(id: string): Promise<Uint8Array | undefined> {
   return backend().getBytes(id);
 }
 
-export async function addUpload(name: string, bytes: Uint8Array): Promise<DocMeta> {
-  return toDocMeta(await backend().put(name, bytes));
+export async function addUpload(name: string, bytes: Uint8Array, contentType = "application/pdf"): Promise<DocMeta> {
+  return toDocMeta(await backend().put(name, bytes, contentType));
 }
 
 export async function deleteDoc(id: string): Promise<boolean> {

@@ -31,6 +31,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
 
   const docRef = useRef<PdfDoc | null>(null);
   const docBytesRef = useRef<ArrayBuffer | null>(null);
+  const kindRef = useRef<"pdf" | "image">("pdf");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const thumbsRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -63,6 +64,23 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
         // the buffer it's handed, so give it a copy.
         docBytesRef.current = buf;
 
+        // Images render directly to canvas (same secure model as PDF pages) -
+        // skip pdf.js.
+        const h = new Uint8Array(buf.slice(0, 12));
+        const isImage =
+          (h[0] === 0x89 && h[1] === 0x50) || // PNG
+          (h[0] === 0xff && h[1] === 0xd8) || // JPEG
+          (h[0] === 0x47 && h[1] === 0x49) || // GIF
+          (h[0] === 0x52 && h[8] === 0x57 && h[9] === 0x45); // WEBP (RIFF...WEBP)
+        if (isImage) {
+          kindRef.current = "image";
+          if (cancelled) return;
+          setNumPages(1);
+          setStatus("ready");
+          return;
+        }
+        kindRef.current = "pdf";
+
         const pdfjs = await loadPdfjs();
         const doc = (await pdfjs.getDocument({ data: buf.slice(0) }).promise) as unknown as PdfDoc;
         if (cancelled) return;
@@ -82,12 +100,41 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
 
   // ---- Render pages whenever the doc / scale / mode / page changes. ----
   const renderPages = useCallback(async () => {
-    const doc = docRef.current;
     const container = containerRef.current;
-    if (!doc || !container) return;
+    if (!container) return;
+    const wm = claims?.wm ?? "";
+
+    // Image documents: draw the single image to a canvas + watermark it.
+    if (kindRef.current === "image") {
+      const bytes = docBytesRef.current;
+      if (!bytes) return;
+      const url = URL.createObjectURL(new Blob([bytes]));
+      const img = new Image();
+      await new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+        img.src = url;
+      });
+      container.replaceChildren();
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.floor(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.floor(img.naturalHeight * scale));
+      canvas.className = "vellum-page";
+      canvas.dataset.page = "1";
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        if (wm) stampWatermark(ctx, canvas.width, canvas.height, wm);
+      }
+      URL.revokeObjectURL(url);
+      container.appendChild(canvas);
+      return;
+    }
+
+    const doc = docRef.current;
+    if (!doc) return;
     container.replaceChildren();
 
-    const wm = claims?.wm ?? "";
     const pages = mode === "slides" ? [page] : range(1, doc.numPages);
     for (const n of pages) {
       const pdfPage = await doc.getPage(n);
@@ -239,7 +286,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
     setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, +(s + delta).toFixed(2))));
   };
 
-  // Only reachable when the token granted perms.download — saves the original
+  // Only reachable when the token granted perms.download - saves the original
   // bytes we already fetched (no second proxy round-trip).
   const onDownload = () => {
     const bytes = docBytesRef.current;
@@ -252,7 +299,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
     URL.revokeObjectURL(url);
   };
 
-  // Only reachable when perms.print — the print stylesheet hides the chrome and
+  // Only reachable when perms.print - the print stylesheet hides the chrome and
   // prints just the rendered pages.
   const onPrint = () => window.print();
 
@@ -360,7 +407,7 @@ function Toolbar(props: {
             ‹
           </button>
           <span className="vellum-pageno">
-            {page} / {numPages || "–"}
+            {page} / {numPages || "-"}
           </span>
           <button
             type="button"
@@ -428,7 +475,7 @@ function Toolbar(props: {
   );
 }
 
-// Diagonal, tiled, low-alpha watermark baked into the page pixels — survives
+// Diagonal, tiled, low-alpha watermark baked into the page pixels - survives
 // screenshots and can't be removed by deleting a DOM node.
 function stampWatermark(ctx: CanvasRenderingContext2D, w: number, h: number, text: string) {
   ctx.save();

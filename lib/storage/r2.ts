@@ -43,7 +43,7 @@ function s3(): S3Client {
   }
   return client;
 }
-// Accept R2_BUCKET_NAME too — some Cloudflare/Vercel provisioning sets that
+// Accept R2_BUCKET_NAME too - some Cloudflare/Vercel provisioning sets that
 // name, and reading only R2_BUCKET silently disables R2 in prod.
 const bucket = () => process.env.R2_BUCKET ?? process.env.R2_BUCKET_NAME ?? "";
 
@@ -79,6 +79,7 @@ export const r2Backend: StorageBackend = {
         name: md.name ? decodeURIComponent(md.name) : "document.pdf",
         sizeBytes: res.ContentLength ?? 0,
         uploadedAt: md.uploadedat ? Number(md.uploadedat) : (res.LastModified?.getTime() ?? 0),
+        contentType: res.ContentType ?? "application/pdf",
       };
     } catch (err) {
       if (isMissing(err)) return undefined;
@@ -98,20 +99,21 @@ export const r2Backend: StorageBackend = {
     }
   },
 
-  async put(name, bytes) {
+  async put(name, bytes, contentType = "application/pdf") {
     const id = newUploadId();
     const meta: UploadMeta = {
       id,
       name: cleanName(name),
       sizeBytes: bytes.byteLength,
       uploadedAt: Date.now(),
+      contentType,
     };
     await s3().send(
       new PutObjectCommand({
         Bucket: bucket(),
         Key: keyFor(id),
         Body: bytes,
-        ContentType: "application/pdf",
+        ContentType: contentType,
         Metadata: { name: encodeURIComponent(meta.name), uploadedat: String(meta.uploadedAt) },
       }),
     );

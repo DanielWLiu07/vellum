@@ -21,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     return new NextResponse(bytes, {
       status: 200,
       headers: {
-        "Content-Type": "application/pdf",
+        "Content-Type": doc.contentType || "application/pdf",
         "Cache-Control": "no-store, max-age=0",
         "X-Content-Type-Options": "nosniff",
       },
