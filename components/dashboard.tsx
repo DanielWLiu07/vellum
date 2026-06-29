@@ -32,6 +32,7 @@ interface Doc {
   visibility: Visibility;
   chapter: string;
   owner: string;
+  thumbnailId?: string;
 }
 
 const VIS_LABEL: Record<Visibility, string> = { public: "Public", chapter: "Chapter", private: "Private" };
@@ -328,15 +329,20 @@ function StatusBadge({ status }: { status: string }) {
 function ProgressBar({ value }: { value: number }) {
   return <div className="bar" aria-label={`${value}%`}><div className="bar-fill" style={{ width: `${value}%` }} /></div>;
 }
-function LessonCard({ title, sub, badge, actions }: { title: string; sub: string; badge?: React.ReactNode; actions: React.ReactNode }) {
+function LessonCard({ title, sub, badge, actions, thumbId }: { title: string; sub: string; badge?: React.ReactNode; actions: React.ReactNode; thumbId?: string }) {
   return (
     <div className="tile">
       <div className="tile-thumb">
-        <div className="tile-preview" aria-hidden>
-          <span className="tile-line" />
-          <span className="tile-line" />
-          <span className="tile-line short" />
-        </div>
+        {thumbId ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="tile-cover" src={`/api/images/${thumbId}`} alt="" />
+        ) : (
+          <div className="tile-preview" aria-hidden>
+            <span className="tile-line" />
+            <span className="tile-line" />
+            <span className="tile-line short" />
+          </div>
+        )}
         {badge && <span className="tile-badge">{badge}</span>}
       </div>
       <div className="tile-info"><p className="tile-title">{title}</p><p className="tile-sub">{sub}</p></div>
@@ -515,7 +521,7 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
         </div>
         <div className="tile-grid">
           {visible.map((d) => (
-            <LessonCard key={d.id} title={d.name}
+            <LessonCard key={d.id} title={d.name} thumbId={d.thumbnailId}
               badge={<span className={`badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>{VIS_LABEL[d.visibility]}</span>}
               sub={`${d.bundled ? "HOSA official" : "Shared by a member"}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}`}
               actions={<button className="btn primary" onClick={() => onView(d.id)}>Open</button>} />

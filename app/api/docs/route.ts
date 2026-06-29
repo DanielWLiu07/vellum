@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { listDocs } from "@/lib/store";
+import { getThumbnail } from "@/lib/thumbnails";
 import { DEMO_VIEWER, filterScoped } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export async function GET() {
     visibility: d.visibility,
     chapter: d.chapter,
     owner: d.owner,
+    thumbnailId: getThumbnail(d.id),
   }));
   return NextResponse.json({ docs }, { headers: { "Cache-Control": "no-store" } });
 }

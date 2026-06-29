@@ -1502,3 +1502,5 @@ h3 {
 .tile-actions .btn, .tile-actions .cta { font-size: 12px; padding: 5px 11px; }
 .tile.skeleton { pointer-events: none; animation: vellum-pulse 1.2s ease-in-out infinite; }
 .tile.skeleton .tile-thumb { background: var(--tan-soft); }
+
+.tile-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }

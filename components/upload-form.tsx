@@ -24,7 +24,23 @@ export function UploadForm() {
   const [copied, setCopied] = React.useState(false);
   const [drag, setDrag] = React.useState(false);
   const [ack, setAck] = React.useState(false);
+  const [thumbnailId, setThumbnailId] = React.useState<string | undefined>();
+  const [thumbBusy, setThumbBusy] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const thumbRef = React.useRef<HTMLInputElement>(null);
+
+  async function pickThumb(f: File | null | undefined) {
+    if (!f) return;
+    setThumbBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", f);
+      const res = await fetch("/api/images", { method: "POST", body: fd });
+      if (res.ok) setThumbnailId((await res.json()).id);
+    } finally {
+      setThumbBusy(false);
+    }
+  }
 
   function choose(f: File | null | undefined) {
     setError(null);
@@ -48,6 +64,7 @@ export function UploadForm() {
       if (name.trim()) fd.set("name", name.trim());
       fd.set("visibility", visibility);
       if (visibility === "chapter" && chapter.trim()) fd.set("chapter", chapter.trim());
+      if (thumbnailId) fd.set("thumbnailId", thumbnailId);
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -126,6 +143,24 @@ export function UploadForm() {
 
       <label className="dash-field"><span>Display name</span>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ECG interpretation guide" /></label>
+
+      <div className="dash-field">
+        <span>Cover image (optional)</span>
+        {thumbnailId ? (
+          <div className="card-img">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/api/images/${thumbnailId}`} alt="Cover preview" />
+            <button type="button" className="card-img-remove" onClick={() => setThumbnailId(undefined)}>Remove cover</button>
+          </div>
+        ) : (
+          <div>
+            <button type="button" className="card-img-add" onClick={() => thumbRef.current?.click()} disabled={thumbBusy}>
+              {thumbBusy ? "Uploading..." : "+ Add a cover image"}
+            </button>
+            <input ref={thumbRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => pickThumb(e.target.files?.[0])} />
+          </div>
+        )}
+      </div>
 
       <div className="upload-settings">
         <p className="upload-settings-title">Who can see it</p>

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { addUpload } from "@/lib/store";
+import { setThumbnail } from "@/lib/thumbnails";
 import { normalizeVisibility } from "@/lib/visibility";
 
 export const runtime = "nodejs";
@@ -62,6 +63,8 @@ export async function POST(req: NextRequest) {
     owner: "you",
   };
   const meta = await addUpload(name, bytes, contentType, scope);
+  const thumbField = form?.get("thumbnailId");
+  if (typeof thumbField === "string" && thumbField) setThumbnail(meta.id, thumbField.slice(0, 64));
   recordAudit("document.upload", meta.name, clientIp(req));
   return NextResponse.json({ id: meta.id, name: meta.name, sizeBytes: meta.sizeBytes, contentType });
 }
