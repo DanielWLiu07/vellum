@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { FlashcardsView } from "./flashcards-view";
 import {
   ADMIN_STATS,
   ADMIN_USERS,
@@ -92,8 +93,63 @@ function useModal(onClose: () => void) {
 
 /* ---------------------------------------------------------------- main */
 
+type NavItem = { id: string; label: string; soon?: boolean };
+
+// Left-nav sections per role. `soon` items are round-2 features (not built yet).
+const NAV: Record<Role, NavItem[]> = {
+  student: [
+    { id: "home", label: "Home" },
+    { id: "assignments", label: "My assignments" },
+    { id: "resources", label: "Resources" },
+    { id: "flashcards", label: "Flashcards" },
+    { id: "skills", label: "General skills", soon: true },
+  ],
+  trainer: [
+    { id: "lessons", label: "My lessons" },
+    { id: "group", label: "My group" },
+    { id: "flashcards", label: "Flashcards" },
+    { id: "skills", label: "General skills", soon: true },
+  ],
+  advisor: [
+    { id: "trainers", label: "Trainers" },
+    { id: "lessons", label: "Chapter lessons" },
+  ],
+  admin: [
+    { id: "overview", label: "Overview" },
+    { id: "users", label: "Users & roles" },
+    { id: "content", label: "All content" },
+    { id: "access", label: "Roles & access" },
+    { id: "activity", label: "Activity log" },
+    { id: "settings", label: "Settings" },
+  ],
+};
+
+const ADMIN_ACTIVITY = [
+  { action: "Changed role to Trainer", who: "Priya Patel", when: "2m ago" },
+  { action: 'Uploaded "Lab safety briefing"', who: "HOSA Canada", when: "1h ago" },
+  { action: "Suspended account", who: "spam@example.com", when: "3h ago" },
+  { action: "Published resource to all students", who: "Coach Rivera", when: "yesterday" },
+];
+
+const ADMIN_SETTINGS = [
+  { label: "Allow student uploads", desc: "Let students submit their own documents", on: false },
+  { label: "Require watermark on shares", desc: "Force a per-user watermark on every shared link", on: true },
+  { label: "Enable General skills (round 2)", desc: "Buzzer game, skills in front of AI, and more", on: false },
+];
+
+function ComingSoon({ title, note }: { title: string; note?: string }) {
+  return (
+    <div className="coming-soon" data-testid="coming-soon">
+      <span className="coming-soon-badge">Round 2</span>
+      <p className="coming-soon-title">{title}</p>
+      <p className="coming-soon-sub">{note ?? "Coming soon - this feature isn't built yet."}</p>
+    </div>
+  );
+}
+
 export function Dashboard() {
   const [role, setRole] = useState<Role>("student");
+  const [section, setSection] = useState<string>("home");
   const [docs, setDocs] = useState<Doc[]>([]);
   const [viewer, setViewer] = useState<string | null>(null);
   const [shareDoc, setShareDoc] = useState<Doc | null>(null);
@@ -127,6 +183,21 @@ export function Dashboard() {
     void refresh();
   }, [refresh]);
 
+  // Deep-link support: ?role=&section= opens a specific view (e.g. the upload
+  // page). Runs once on mount, reading state from the URL before setState.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const r = p.get("role");
+    if (!r || !ROLES.some((x) => x.id === r)) return;
+    const nextRole = r as Role;
+    const s = p.get("section");
+    const nextSection = s && NAV[nextRole].some((n) => n.id === s) ? s : NAV[nextRole][0]!.id;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setRole(nextRole);
+    setSection(nextSection);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, []);
+
   const view = useCallback(async (docId: string, watermark = "") => {
     const res = await fetch("/api/share", {
       method: "POST",
@@ -144,7 +215,7 @@ export function Dashboard() {
       fd.set("file", file);
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       if (res.ok) { await refresh(); notify(`Uploaded ${file.name}`); }
-      else notify("Upload failed — PDFs only, 25 MB max.");
+      else notify("Upload failed - PDFs only, 25 MB max.");
     } finally {
       setUploading(false);
     }
@@ -166,22 +237,49 @@ export function Dashboard() {
 
   return (
     <div className="dash">
-      <div className="role-switch" role="tablist" aria-label="Preview as role">
-        <span className="role-switch-label">Preview as</span>
-        {ROLES.map((r) => (
-          <button key={r.id} role="tab" aria-selected={role === r.id}
-            className={role === r.id ? "role-chip is-active" : "role-chip"}
-            onClick={() => { setRole(r.id); setViewer(null); }}>
-            {r.label}
-          </button>
-        ))}
-      </div>
-      <p className="dash-sub" style={{ marginBottom: 24 }}>{active.blurb}</p>
+      <div className="dash-shell">
+        <aside className="dash-sidebar">
+          <div className="dash-role-select">
+            <span className="role-switch-label">Preview as</span>
+            <select
+              className="role-select"
+              value={role}
+              aria-label="Preview as role"
+              onChange={(e) => {
+                const r = e.target.value as Role;
+                setRole(r);
+                setSection(NAV[r][0]!.id);
+                setViewer(null);
+              }}
+            >
+              {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+            </select>
+          </div>
+          <nav className="dash-nav" aria-label="Sections">
+            {NAV[role].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`dash-nav-item${section === item.id ? " is-active" : ""}${item.soon ? " is-soon" : ""}`}
+                aria-current={section === item.id}
+                data-testid={`nav-${item.id}`}
+                onClick={() => setSection(item.id)}
+              >
+                <span className="dash-nav-label">{item.label}</span>
+                {item.soon && <span className="dash-nav-soon">Soon</span>}
+              </button>
+            ))}
+          </nav>
+        </aside>
 
-      {role === "student" && <StudentView docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} />}
-      {role === "trainer" && <TrainerView {...shared} onAssign={setAssignTo} />}
-      {role === "advisor" && <AdvisorView {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />}
-      {role === "admin" && <AdminView {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
+        <main className="dash-main">
+          <p className="dash-sub" style={{ marginBottom: 20 }}>{active.blurb}</p>
+          {role === "student" && <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} />}
+          {role === "trainer" && <TrainerView section={section} {...shared} onAssign={setAssignTo} />}
+          {role === "advisor" && <AdvisorView section={section} {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />}
+          {role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
+        </main>
+      </div>
 
       {viewer && <ViewerModal src={viewer} onClose={() => setViewer(null)} />}
 
@@ -241,19 +339,19 @@ function DocManager({ docs, onView, onShare, onDelete, onUploadClick, uploading,
     <section className="role-section">
       <div className="section-head">
         <h2>{heading}</h2>
-        {canUpload && <button className="cta" disabled={uploading} onClick={onUploadClick}>{uploading ? "Uploading…" : "+ Upload PDF"}</button>}
+        {canUpload && <button className="cta" disabled={uploading} onClick={onUploadClick}>{uploading ? "Uploading..." : "+ Upload PDF"}</button>}
       </div>
       <div className="lesson-grid">
         {loading ? (
           [0, 1, 2].map((i) => (
             <div key={i} className="lesson-card skeleton" aria-hidden>
               <div className="lesson-icon">▤</div>
-              <div className="lesson-body"><p className="lesson-title">Loading…</p><p className="lesson-sub">&nbsp;</p></div>
+              <div className="lesson-body"><p className="lesson-title">Loading...</p><p className="lesson-sub">&nbsp;</p></div>
             </div>
           ))
         ) : loadError ? (
           <div className="empty-state">
-            Couldn’t load documents. <button className="btn" onClick={onRetry}>Retry</button>
+            Could not load documents. <button className="btn" onClick={onRetry}>Retry</button>
           </div>
         ) : docs.length === 0 ? (
           <div className="empty-state">No documents yet. {canUpload && "Click + Upload PDF to add one."}</div>
@@ -286,38 +384,40 @@ function ViewerModal({ src, onClose }: { src: string; onClose: () => void }) {
 
 /* ---------------------------------------------------------------- role views */
 
-function StudentView({ docs, onView, onStart }: { docs: Doc[]; onView: (id: string, wm?: string) => void; onStart: (title: string) => void }) {
+function StudentView({ section, docs, onView, onStart, uploading, onUploadClick }: { section: string; docs: Doc[]; onView: (id: string, wm?: string) => void; onStart: (title: string) => void; uploading: boolean; onUploadClick: () => void }) {
   const done = STUDENT_ASSIGNMENTS.filter((a) => a.status === "done").length;
   const total = STUDENT_ASSIGNMENTS.length;
   const pct = Math.round((done / total) * 100);
   const next = STUDENT_ASSIGNMENTS.find((a) => a.status !== "done");
-  return (
-    <>
-      {/* At-a-glance stats */}
-      <div className="stat-grid">
-        <div className="stat-card"><p className="stat-value">{total - done}</p><p className="stat-label">To do</p></div>
-        <div className="stat-card"><p className="stat-value">{done}</p><p className="stat-label">Completed</p></div>
-        <div className="stat-card"><p className="stat-value">{pct}%</p><p className="stat-label">Progress</p></div>
-        <div className="stat-card"><p className="stat-value">{docs.length}</p><p className="stat-label">Content available</p></div>
-      </div>
 
-      {/* Up next — one clear call to action */}
-      {next && (
-        <div className="lesson-card" style={{ borderColor: "var(--teal)" }}>
-          <div className="lesson-icon" aria-hidden>▶</div>
-          <div className="lesson-body">
-            <p className="lesson-sub">Up next</p>
-            <p className="lesson-title">{next.title}</p>
-          </div>
-          <div className="lesson-end">
-            <button className="btn primary" onClick={() => (next.kind === "document" && next.docId ? onView(next.docId) : onStart(next.title))}>
-              {next.status === "in_progress" ? "Continue" : "Start"}
-            </button>
-          </div>
+  if (section === "home") {
+    return (
+      <>
+        <div className="stat-grid">
+          <div className="stat-card"><p className="stat-value">{total - done}</p><p className="stat-label">To do</p></div>
+          <div className="stat-card"><p className="stat-value">{done}</p><p className="stat-label">Completed</p></div>
+          <div className="stat-card"><p className="stat-value">{pct}%</p><p className="stat-label">Progress</p></div>
+          <div className="stat-card"><p className="stat-value">{docs.length}</p><p className="stat-label">Content available</p></div>
         </div>
-      )}
+        {next && (
+          <div className="lesson-card" style={{ borderColor: "var(--teal)" }}>
+            <div className="lesson-body">
+              <p className="lesson-sub">Up next</p>
+              <p className="lesson-title">{next.title}</p>
+            </div>
+            <div className="lesson-end">
+              <button className="btn primary" onClick={() => (next.kind === "document" && next.docId ? onView(next.docId) : onStart(next.title))}>
+                {next.status === "in_progress" ? "Continue" : "Start"}
+              </button>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
 
-      {/* Assigned to you */}
+  if (section === "assignments") {
+    return (
       <section className="role-section">
         <div className="section-head"><h2>Assigned to you</h2><span className="section-count">{done} of {total} complete</span></div>
         <div className="progress-banner"><ProgressBar value={pct} /><span>{pct}%</span></div>
@@ -332,28 +432,43 @@ function StudentView({ docs, onView, onStart }: { docs: Doc[]; onView: (id: stri
           ))}
         </div>
       </section>
+    );
+  }
 
-      {/* All general content — every student can open these */}
+  if (section === "resources") {
+    return (
       <section className="role-section">
-        <div className="section-head"><h2>All content</h2><span className="section-count">{docs.length} available to everyone</span></div>
-        <p className="dash-sub" style={{ marginTop: -4, marginBottom: 12 }}>General resources every student can open anytime.</p>
+        <div className="section-head">
+          <h2>Resources</h2>
+          <button className="cta" disabled={uploading} onClick={onUploadClick}>
+            {uploading ? "Uploading..." : "+ Share a resource"}
+          </button>
+        </div>
+        <p className="dash-sub" style={{ marginTop: -4, marginBottom: 12 }}>
+          A shared pool every member can use - anything you upload here is shared with everyone.
+          {" "}{docs.length} resource{docs.length === 1 ? "" : "s"} available.
+        </p>
         <div className="lesson-grid">
           {docs.map((d) => (
             <LessonCard key={d.id} title={d.name}
-              sub={`${d.bundled ? "General resource" : "Shared"} · PDF`}
+              sub={`${d.bundled ? "HOSA official" : "Shared by a member"} · PDF`}
               actions={<button className="btn primary" onClick={() => onView(d.id)}>Open</button>} />
           ))}
-          {docs.length === 0 && <div className="empty-state">No content available yet.</div>}
+          {docs.length === 0 && <div className="empty-state">No resources yet - be the first to share one.</div>}
         </div>
       </section>
-    </>
-  );
+    );
+  }
+
+  if (section === "flashcards") return <FlashcardsView />;
+
+  return <ComingSoon title="General skills" note="Round-2 practice - the buzzer game, doing skills in front of AI, and more. Coming soon." />;
 }
 
-function TrainerView({ onAssign, ...shared }: SharedProps & { onAssign: (memberId: string) => void }) {
-  return (
-    <>
-      <DocManager {...shared} heading="My lessons" />
+function TrainerView({ section, onAssign, ...shared }: SharedProps & { section: string; onAssign: (memberId: string) => void }) {
+  if (section === "lessons") return <DocManager {...shared} heading="My lessons" />;
+  if (section === "group") {
+    return (
       <section className="role-section">
         <div className="section-head"><h2>My group</h2><span className="section-count">{TRAINER_ROSTER.length} members</span></div>
         <div className="table-card">
@@ -367,13 +482,17 @@ function TrainerView({ onAssign, ...shared }: SharedProps & { onAssign: (memberI
           ))}
         </div>
       </section>
-    </>
-  );
+    );
+  }
+  if (section === "flashcards") return <FlashcardsView />;
+
+  return <ComingSoon title="General skills" note="Round-2 practice - the buzzer game, skills in front of AI, and more. Coming soon." />;
 }
 
-function AdvisorView({ onManage, ...shared }: SharedProps & { onManage: (name: string) => void }) {
-  return (
-    <>
+function AdvisorView({ section, onManage, ...shared }: SharedProps & { section: string; onManage: (name: string) => void }) {
+  if (section === "lessons") return <DocManager {...shared} heading="Chapter lessons" />;
+  if (section === "trainers") {
+    return (
       <section className="role-section">
         <div className="section-head"><h2>My chapter · trainers</h2><span className="section-count">{ADVISOR_TRAINERS.length} trainers</span></div>
         <div className="table-card">
@@ -387,36 +506,95 @@ function AdvisorView({ onManage, ...shared }: SharedProps & { onManage: (name: s
           ))}
         </div>
       </section>
-      <DocManager {...shared} heading="Chapter lessons" />
-    </>
-  );
+    );
+  }
+  return <ComingSoon title={section} />;
 }
 
-function AdminView({ onRole, ...shared }: SharedProps & { onRole: (name: string, role: string) => void }) {
+function AdminView({ section, onRole, ...shared }: SharedProps & { section: string; onRole: (name: string, role: string) => void }) {
   const [users, setUsers] = useState<AdminUser[]>(ADMIN_USERS);
-  return (
-    <>
+  const [settings, setSettings] = useState(ADMIN_SETTINGS);
+  if (section === "overview") {
+    return (
       <div className="stat-grid">
         {ADMIN_STATS.map((s) => <div key={s.label} className="stat-card"><p className="stat-value">{s.value}</p><p className="stat-label">{s.label}</p></div>)}
       </div>
+    );
+  }
+  if (section === "users") {
+    return (
       <section className="role-section">
-        <div className="section-head"><h2>All users</h2><span className="section-count">change any role</span></div>
+        <div className="section-head"><h2>Users &amp; roles</h2><span className="section-count">{users.length} users · change any role</span></div>
         <div className="table-card">
           {users.map((u) => (
             <div key={u.id} className="member-row">
               <div className="member-id"><span className="avatar">{initials(u.name)}</span>
                 <div><p className="member-name">{u.name}</p><p className="member-email">{u.email}</p></div></div>
-              <select className="role-select" value={u.role}
-                onChange={(e) => { const r = e.target.value as Role; setUsers((p) => p.map((x) => x.id === u.id ? { ...x, role: r } : x)); onRole(u.name, ROLES.find((x) => x.id === r)!.label); }}>
-                {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-              </select>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select className="role-select" value={u.role}
+                  onChange={(e) => { const r = e.target.value as Role; setUsers((p) => p.map((x) => x.id === u.id ? { ...x, role: r } : x)); onRole(u.name, ROLES.find((x) => x.id === r)!.label); }}>
+                  {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                </select>
+                <button className="btn" onClick={() => setUsers((p) => p.filter((x) => x.id !== u.id))}>Remove</button>
+              </div>
             </div>
           ))}
         </div>
       </section>
-      <DocManager {...shared} heading="All documents" />
-    </>
-  );
+    );
+  }
+  if (section === "content") return <DocManager {...shared} heading="All content" />;
+  if (section === "access") {
+    return (
+      <section className="role-section">
+        <div className="section-head"><h2>Roles &amp; access</h2><span className="section-count">what each role can do</span></div>
+        <div className="table-card">
+          {ROLES.map((r) => (
+            <div key={r.id} className="member-row">
+              <div className="member-id"><div><p className="member-name">{r.label}</p><p className="member-email">{r.blurb}</p></div></div>
+              <span className={`badge ${r.id === "admin" ? "badge-ok" : "badge-muted"}`}>{r.id === "admin" ? "Full control" : "Scoped"}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+  if (section === "activity") {
+    return (
+      <section className="role-section">
+        <div className="section-head"><h2>Activity log</h2><span className="section-count">recent platform actions</span></div>
+        <div className="table-card">
+          {ADMIN_ACTIVITY.map((a, i) => (
+            <div key={i} className="member-row">
+              <div className="member-id"><div><p className="member-name">{a.action}</p><p className="member-email">{a.who}</p></div></div>
+              <span className="member-frac">{a.when}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+  if (section === "settings") {
+    return (
+      <section className="role-section">
+        <div className="section-head"><h2>Settings</h2><span className="section-count">platform configuration</span></div>
+        <div className="table-card">
+          {settings.map((s, i) => (
+            <label key={s.label} className="member-row" style={{ cursor: "pointer" }}>
+              <div className="member-id"><div><p className="member-name">{s.label}</p><p className="member-email">{s.desc}</p></div></div>
+              <input
+                type="checkbox"
+                checked={s.on}
+                aria-label={s.label}
+                onChange={() => setSettings((p) => p.map((x, j) => (j === i ? { ...x, on: !x.on } : x)))}
+              />
+            </label>
+          ))}
+        </div>
+      </section>
+    );
+  }
+  return <ComingSoon title={section} />;
 }
 
 /* ---------------------------------------------------------------- modals */
@@ -440,8 +618,8 @@ function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () =>
   return (
     <div className="dash-modal-backdrop" onClick={onClose}>
       <div className="dash-modal" ref={ref} role="dialog" aria-modal="true" aria-label={`Share ${doc.name}`} onClick={(e) => e.stopPropagation()}>
-        <h2>Share “{doc.name}”</h2>
-        <p className="dash-muted" style={{ padding: 0, marginTop: 4 }}>The link carries a signed token — it expires and can’t be edited.</p>
+        <h2>Share {doc.name}</h2>
+        <p className="dash-muted" style={{ padding: 0, marginTop: 4 }}>The link carries a signed token. It expires and cannot be edited.</p>
         <label className="dash-field"><span>Watermark (shown on every page)</span>
           <input value={watermark} placeholder="e.g. Daniel Liu • confidential" onChange={(e) => setWatermark(e.target.value)} /></label>
         <label className="dash-field"><span>Link expires in (minutes)</span>
@@ -464,7 +642,7 @@ function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () =>
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
             }
-          }}>{copied ? "Copied ✓" : "Copy link"}</button>
+          }}>{copied ? "Copied" : "Copy link"}</button>
         </div>
       </div>
     </div>

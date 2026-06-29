@@ -577,6 +577,122 @@ h3 {
 
 /* ----------------------------------------------------------------- role dashboard */
 
+/* ----------------------------------------------------------- dashboard shell */
+.dash-shell {
+  display: flex;
+  gap: 22px;
+  align-items: flex-start;
+}
+.dash-sidebar {
+  flex: 0 0 220px;
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.dash-role-select {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dash-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dash-nav-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.dash-nav-item:hover {
+  background: var(--tan-soft);
+}
+.dash-nav-item.is-active {
+  background: var(--teal);
+  color: var(--on-teal);
+}
+.dash-nav-item.is-soon {
+  color: var(--ink-soft);
+}
+.dash-nav-icon {
+  font-size: 15px;
+  width: 18px;
+  text-align: center;
+}
+.dash-nav-label {
+  flex: 1;
+}
+.dash-nav-soon {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--maroon);
+  background: #f6e9e3;
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+.dash-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.coming-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 60px 24px;
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.coming-soon-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--maroon);
+  background: #f6e9e3;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.coming-soon-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.coming-soon-sub {
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+@media (max-width: 720px) {
+  .dash-shell { flex-direction: column; }
+  .dash-sidebar { position: static; width: 100%; flex-basis: auto; }
+  .dash-nav { flex-direction: row; flex-wrap: wrap; }
+}
+
 .role-switch {
   display: flex;
   align-items: center;
@@ -928,7 +1044,7 @@ h3 {
 }
 
 /* ----------------------------------------------------------------- print */
-/* Only reachable when the token grants print — strip the chrome and print the
+/* Only reachable when the token grants print - strip the chrome and print the
    rendered (still watermarked) pages. */
 @media print {
   .vellum-toolbar,
@@ -948,4 +1064,207 @@ h3 {
     max-width: 100%;
     page-break-after: always;
   }
+}
+
+/* ----------------------------------------------------------- upload page */
+.dash-topnav-links { display: flex; gap: 14px; align-items: center; }
+.upload-card {
+  max-width: 640px;
+  margin: 24px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 28px;
+}
+.upload-h { font-size: 22px; font-weight: 700; color: var(--ink); margin: 0; }
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 14px;
+  padding: 34px 18px;
+  text-align: center;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.drop-zone:hover, .drop-zone.is-drag { border-color: var(--teal); background: var(--tan-soft); }
+.drop-zone.has-file { border-style: solid; border-color: var(--teal); color: var(--ink); }
+.upload-inline-link { color: var(--teal); font-weight: 700; }
+.upload-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.upload-settings-title {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--ink-soft);
+}
+.upload-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.upload-link {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; word-break: break-all;
+  background: var(--tan-soft); border-radius: 8px; padding: 10px 12px; color: var(--ink);
+}
+.upload-error { color: var(--maroon); font-size: 14px; font-weight: 600; }
+
+/* ----------------------------------------------------------- guidelines */
+.guidelines {
+  max-width: 720px;
+  margin: 24px auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 32px;
+  color: var(--ink);
+  line-height: 1.6;
+}
+.guidelines h1 { font-size: 26px; font-weight: 700; margin: 12px 0 6px; }
+.guidelines h2 { font-size: 17px; font-weight: 700; margin: 22px 0 8px; color: var(--teal); }
+.guidelines ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.guidelines li { color: var(--ink); }
+.guidelines p { color: var(--ink); }
+.guidelines-cta { margin-top: 26px; }
+
+.upload-warning {
+  background: #f6e9e3;
+  border: 1px solid var(--maroon);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--maroon-deep);
+  line-height: 1.5;
+}
+.upload-ack {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.upload-ack input { margin-top: 3px; }
+
+/* ----------------------------------------------------------- create / flashcards */
+.create-wrap { display: flex; flex-direction: column; gap: 4px; }
+.type-select {
+  max-width: 640px;
+  margin: 24px auto 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.type-tab {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.type-tab:hover { border-color: var(--teal); }
+.type-tab.is-active { border-color: var(--teal); background: var(--tan-soft); }
+.type-tab-sub { font-size: 11px; font-weight: 600; color: var(--ink-soft); }
+
+.card-rows { display: flex; flex-direction: column; gap: 8px; }
+.card-row { display: flex; gap: 8px; align-items: center; }
+.card-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.card-input:focus-visible { outline: none; border-color: var(--teal); }
+.paste-area {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--surface);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.study { max-width: 640px; margin: 24px auto; display: flex; flex-direction: column; gap: 16px; }
+.study-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.flashcard {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 280px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--teal);
+  border-radius: 18px;
+  background: var(--surface);
+  padding: 32px;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(18, 98, 137, 0.1);
+}
+.flashcard-side {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--maroon);
+}
+.flashcard-text { font-size: 22px; font-weight: 600; color: var(--ink); line-height: 1.4; }
+.flashcard-hint { font-size: 12px; color: var(--ink-soft); }
+.study-controls { display: flex; gap: 10px; justify-content: center; }
+
+/* ------------------------------------------------ global CTA + pill (used outside .landing) */
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--maroon);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, opacity 0.15s;
+}
+.cta:hover:not(:disabled) { background: var(--maroon-deep); }
+.cta:disabled { opacity: 0.5; cursor: default; }
+.cta.secondary {
+  background: var(--surface);
+  border: 1px solid var(--teal);
+  color: var(--teal);
+}
+.cta.secondary:hover:not(:disabled) { background: var(--tan-soft); }
+
+.pill {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--maroon);
+  background: var(--surface);
+  border: 1px solid var(--tan);
+  border-radius: 999px;
+  padding: 4px 12px;
 }

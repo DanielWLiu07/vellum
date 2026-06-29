@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Dashboard } from "@/components/dashboard";
 
 export const metadata: Metadata = {
-  title: "Vellum — dashboard",
+  title: "Vellum - dashboard",
   description: "Upload, manage, and securely share documents with Vellum.",
 };
 
@@ -14,7 +14,11 @@ export default function DashboardPage() {
     <main className="dash-page">
       <nav className="dash-topnav">
         <Link href="/" className="dash-brand">Vellum</Link>
-        <Link href="/" className="dash-back">← Back to overview</Link>
+        <span className="dash-topnav-links">
+          <Link href="/upload" className="dash-back">Upload</Link>
+          <Link href="/guidelines" className="dash-back">Guidelines</Link>
+          <Link href="/" className="dash-back">← Overview</Link>
+        </span>
       </nav>
       {enabled ? (
         <Dashboard />
