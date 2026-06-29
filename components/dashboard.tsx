@@ -330,10 +330,17 @@ function ProgressBar({ value }: { value: number }) {
 }
 function LessonCard({ title, sub, badge, actions }: { title: string; sub: string; badge?: React.ReactNode; actions: React.ReactNode }) {
   return (
-    <div className="lesson-card">
-      <div className="lesson-icon" aria-hidden>▤</div>
-      <div className="lesson-body"><p className="lesson-title">{title}</p><p className="lesson-sub">{sub}</p></div>
-      <div className="lesson-end">{badge}{actions}</div>
+    <div className="tile">
+      <div className="tile-thumb">
+        <div className="tile-preview" aria-hidden>
+          <span className="tile-line" />
+          <span className="tile-line" />
+          <span className="tile-line short" />
+        </div>
+        {badge && <span className="tile-badge">{badge}</span>}
+      </div>
+      <div className="tile-info"><p className="tile-title">{title}</p><p className="tile-sub">{sub}</p></div>
+      <div className="tile-actions">{actions}</div>
     </div>
   );
 }
@@ -357,12 +364,12 @@ function DocManager({ docs, onView, onShare, onDelete, onUploadClick, uploading,
         <h2>{heading}</h2>
         {canUpload && <button className="cta" disabled={uploading} onClick={onUploadClick}>{uploading ? "Uploading..." : "+ Upload PDF"}</button>}
       </div>
-      <div className="lesson-grid">
+      <div className="tile-grid">
         {loading ? (
           [0, 1, 2].map((i) => (
-            <div key={i} className="lesson-card skeleton" aria-hidden>
-              <div className="lesson-icon">▤</div>
-              <div className="lesson-body"><p className="lesson-title">Loading...</p><p className="lesson-sub">&nbsp;</p></div>
+            <div key={i} className="tile skeleton" aria-hidden>
+              <div className="tile-thumb"><div className="tile-preview" /></div>
+              <div className="tile-info"><p className="tile-title">Loading...</p><p className="tile-sub">&nbsp;</p></div>
             </div>
           ))
         ) : loadError ? (
@@ -454,7 +461,7 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
       <section className="role-section">
         <div className="section-head"><h2>Assigned to you</h2><span className="section-count">{done} of {total} complete</span></div>
         <div className="progress-banner"><ProgressBar value={pct} /><span>{pct}%</span></div>
-        <div className="lesson-grid">
+        <div className="tile-grid">
           {STUDENT_ASSIGNMENTS.map((a) => (
             <LessonCard key={a.id} title={a.title}
               sub={`${a.kind === "quiz" ? "Quiz" : "Lesson"} · ${a.from}${a.due ? ` · due ${a.due}` : ""}`}
@@ -506,7 +513,7 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
             ))}
           </div>
         </div>
-        <div className="lesson-grid">
+        <div className="tile-grid">
           {visible.map((d) => (
             <LessonCard key={d.id} title={d.name}
               badge={<span className={`badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>{VIS_LABEL[d.visibility]}</span>}
@@ -706,9 +713,8 @@ function AssignModal({ memberName, docs, onClose, onAssign }: { memberName: stri
         <div className="assign-list">
           {docs.map((d) => (
             <button key={d.id} className="assign-row" onClick={() => onAssign(d.name, memberName)}>
-              <span className="lesson-icon" aria-hidden>▤</span>
               <span>{d.name}</span>
-              <span className="assign-add">Assign →</span>
+              <span className="assign-add">Assign</span>
             </button>
           ))}
           {docs.length === 0 && <p className="dash-muted">Upload a lesson first.</p>}

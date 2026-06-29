@@ -42,14 +42,21 @@ export function QuizzesView() {
       ) : quizzes.length === 0 ? (
         <div className="empty-state">No quizzes yet - create the first one.</div>
       ) : (
-        <div className="lesson-grid">
+        <div className="tile-grid">
           {quizzes.map((q) => (
-            <div key={q.id} className="lesson-card" data-testid={`quiz-${q.id}`}>
-              <div className="lesson-body">
-                <p className="lesson-title">{q.title}</p>
-                <p className="lesson-sub">{q.questionCount} question{q.questionCount === 1 ? "" : "s"}</p>
+            <div key={q.id} className="tile" data-testid={`quiz-${q.id}`}>
+              <div className="tile-thumb">
+                <div className="tile-preview">
+                  <span className="tile-preview-title">{q.title}</span>
+                  <span className="tile-line" />
+                  <span className="tile-line short" />
+                </div>
               </div>
-              <div className="lesson-end" style={{ display: "flex", gap: 8 }}>
+              <div className="tile-info">
+                <p className="tile-title">{q.title}</p>
+                <p className="tile-sub">{q.questionCount} question{q.questionCount === 1 ? "" : "s"}</p>
+              </div>
+              <div className="tile-actions">
                 <Link className="btn primary" href={`/quizzes/${q.id}`}>Take</Link>
                 {q.id !== "sample-quiz" && (
                   <button type="button" className="btn" disabled={busyId === q.id} onClick={() => del(q.id)}>Delete</button>

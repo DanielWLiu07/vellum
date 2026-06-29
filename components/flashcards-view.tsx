@@ -42,14 +42,17 @@ export function FlashcardsView() {
       ) : decks.length === 0 ? (
         <div className="empty-state">No decks yet - create the first one.</div>
       ) : (
-        <div className="lesson-grid">
+        <div className="tile-grid">
           {decks.map((d) => (
-            <div key={d.id} className="lesson-card" data-testid={`deck-${d.id}`}>
-              <div className="lesson-body">
-                <p className="lesson-title">{d.title}</p>
-                <p className="lesson-sub">{d.cardCount} card{d.cardCount === 1 ? "" : "s"}</p>
+            <div key={d.id} className="tile" data-testid={`deck-${d.id}`}>
+              <div className="tile-thumb">
+                <div className="tile-preview"><span className="tile-preview-title">{d.title}</span></div>
               </div>
-              <div className="lesson-end" style={{ display: "flex", gap: 8 }}>
+              <div className="tile-info">
+                <p className="tile-title">{d.title}</p>
+                <p className="tile-sub">{d.cardCount} card{d.cardCount === 1 ? "" : "s"}</p>
+              </div>
+              <div className="tile-actions">
                 <Link className="btn primary" href={`/decks/${d.id}`}>Study</Link>
                 {d.id !== "sample-deck" && (
                   <button type="button" className="btn" disabled={busyId === d.id} onClick={() => del(d.id)}>Delete</button>
