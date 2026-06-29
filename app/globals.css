@@ -1373,3 +1373,24 @@ h3 {
   overflow: hidden;
 }
 .study-progress span { display: block; height: 100%; background: var(--teal); transition: width 0.2s; }
+
+/* ------------------------------------------------ chapter info card (home) */
+.chapter-card {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--maroon);
+  border-radius: 12px;
+  padding: 16px 18px;
+  background: var(--surface);
+  margin-bottom: 16px;
+}
+.chapter-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.chapter-name { font-size: 17px; font-weight: 700; color: var(--ink); }
+.chapter-region { font-size: 13px; color: var(--ink-soft); }
+.chapter-members {
+  font-size: 12px; font-weight: 700; color: var(--maroon);
+  background: var(--tan-soft); border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+}
+.chapter-facts { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 12px; }
+.chapter-facts > div { display: flex; flex-direction: column; gap: 1px; font-size: 14px; color: var(--ink); }
+.chapter-label { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-soft); }
+.chapter-note { margin-top: 12px; font-size: 13px; color: var(--ink-soft); border-top: 1px solid var(--border); padding-top: 10px; }

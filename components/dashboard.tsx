@@ -14,6 +14,7 @@ import {
   ADMIN_STATS,
   ADMIN_USERS,
   ADVISOR_TRAINERS,
+  CHAPTER,
   ROLES,
   STUDENT_ASSIGNMENTS,
   TRAINER_ROSTER,
@@ -407,6 +408,21 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick 
   if (section === "home") {
     return (
       <>
+        <div className="chapter-card">
+          <div className="chapter-head">
+            <div>
+              <p className="chapter-name">{CHAPTER.name}</p>
+              <p className="chapter-region">{CHAPTER.region}</p>
+            </div>
+            <span className="chapter-members">{CHAPTER.members} members</span>
+          </div>
+          <div className="chapter-facts">
+            <div><span className="chapter-label">Advisor</span><span>{CHAPTER.advisor}</span></div>
+            <div><span className="chapter-label">Next event</span><span>{CHAPTER.nextEvent.name} · {CHAPTER.nextEvent.date}</span></div>
+          </div>
+          <p className="chapter-note">{CHAPTER.announcement}</p>
+        </div>
+
         <div className="stat-grid">
           <div className="stat-card"><p className="stat-value">{total - done}</p><p className="stat-label">To do</p></div>
           <div className="stat-card"><p className="stat-value">{done}</p><p className="stat-label">Completed</p></div>

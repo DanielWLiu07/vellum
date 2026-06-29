@@ -14,6 +14,24 @@ export const ROLES: { id: Role; label: string; blurb: string }[] = [
   { id: "admin", label: "Admin", blurb: "Everyone, everything, and platform health." },
 ];
 
+export interface ChapterInfo {
+  name: string;
+  region: string;
+  advisor: string;
+  members: number;
+  nextEvent: { name: string; date: string };
+  announcement: string;
+}
+
+export const CHAPTER: ChapterInfo = {
+  name: "Toronto Central",
+  region: "HOSA Canada - Ontario",
+  advisor: "Coach Rivera",
+  members: 38,
+  nextEvent: { name: "Fall Leadership Conference (online)", date: "Nov 14" },
+  announcement: "FLC registration is open. Confirm your competitive events with your advisor by Oct 20.",
+};
+
 export interface AssignedItem {
   id: string;
   title: string;
