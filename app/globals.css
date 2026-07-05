@@ -1543,3 +1543,26 @@ h3 {
   border-radius: 10px;
   padding: 10px 14px;
 }
+
+/* Drive-style folder tiles (dashboard Guidelines section) */
+.tile-folder { cursor: pointer; text-align: left; border: 0; padding: 0; background: none; font: inherit; }
+.tile-folder .tile-thumb { display: flex; align-items: center; justify-content: center; }
+.tile-preview.folder {
+  width: 72%;
+  height: 58%;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #e8d9c4, #dcc9ae);
+  border: 1px solid #d0bba6;
+  position: relative;
+  display: block;
+}
+.tile-preview.folder .folder-tab {
+  position: absolute;
+  top: -9px;
+  left: 10px;
+  width: 38%;
+  height: 10px;
+  border-radius: 6px 6px 0 0;
+  background: #d0bba6;
+  display: block;
+}

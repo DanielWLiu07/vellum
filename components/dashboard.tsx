@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+
+import { OFFICIAL_GUIDELINES } from "@/lib/official-guidelines";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ActivityLog } from "./activity-log";
@@ -123,10 +125,12 @@ function useModal(onClose: () => void) {
 // section switches — first-class rows in the same list, same styling.
 type NavItem = { id: string; label: string; soon?: boolean; href?: string };
 
-// Every role gets Upload + Guidelines at the bottom of their section list.
+// Every role gets these at the bottom of their section list. Guidelines is
+// a real dashboard SECTION (Drive-style year folders — see GuidelinesView),
+// not an external page, so it keeps the dashboard chrome.
 const COMMON_LINKS: NavItem[] = [
+  { id: "guidelines", label: "Guidelines" },
   { id: "upload", label: "Upload", href: "/upload" },
-  { id: "guidelines", label: "Guidelines", href: "/guidelines" },
 ];
 
 // Left-nav sections per role. `soon` items are round-2 features (not built yet).
@@ -327,12 +331,13 @@ export function Dashboard() {
 
         <main className="dash-main">
           <p className="dash-sub" style={{ marginBottom: 20 }}>{active.blurb}</p>
-          {role === "student" && <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />}
-          {role === "trainer" && <TrainerView section={section} {...shared} onAssign={setAssignTo} />}
-          {role === "advisor" && (STUDENT_SECTIONS.has(section)
+          {section === "guidelines" && <GuidelinesView />}
+          {section !== "guidelines" && role === "student" && <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />}
+          {section !== "guidelines" && role === "trainer" && <TrainerView section={section} {...shared} onAssign={setAssignTo} />}
+          {section !== "guidelines" && role === "advisor" && (STUDENT_SECTIONS.has(section)
             ? <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />
             : <AdvisorView section={section} {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />)}
-          {role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
+          {section !== "guidelines" && role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
         </main>
       </div>
 
@@ -374,6 +379,90 @@ function StatusBadge({ status }: { status: string }) {
 function ProgressBar({ value }: { value: number }) {
   return <div className="bar" aria-label={`${value}%`}><div className="bar-fill" style={{ width: `${value}%` }} /></div>;
 }
+/* ------------------------------------------------------------ guidelines */
+
+/**
+ * Official HOSA Canada event guidelines, browsed like a drive: one folder
+ * tile per season, click in for the documents as tiles, breadcrumb back.
+ * Data is the static manifest (lib/official-guidelines.ts) — external PDFs,
+ * opened in a new tab; no bytes stored here. Community sharing rules stay
+ * on /guidelines (linked below the grid).
+ */
+function GuidelinesView() {
+  const [year, setYear] = useState<string | null>(null);
+
+  if (year === null) {
+    return (
+      <section>
+        <div className="section-head">
+          <h2 className="section-title">Official event guidelines</h2>
+        </div>
+        <div className="tile-grid">
+          {OFFICIAL_GUIDELINES.map((season) => (
+            <button
+              key={season.year}
+              type="button"
+              className="tile tile-folder"
+              data-testid={`guidelines-year-${season.year}`}
+              onClick={() => setYear(season.year)}
+            >
+              <div className="tile-thumb">
+                <div className="tile-preview folder" aria-hidden>
+                  <span className="folder-tab" />
+                </div>
+              </div>
+              <div className="tile-info">
+                <p className="tile-title">{season.year}</p>
+                <p className="tile-sub">{season.items.length} documents</p>
+              </div>
+            </button>
+          ))}
+        </div>
+        <p className="dash-sub" style={{ marginTop: 18 }}>
+          Looking for what you can share on Vitals? Read the{" "}
+          <Link href="/guidelines">content &amp; sharing guidelines</Link>.
+        </p>
+      </section>
+    );
+  }
+
+  const season = OFFICIAL_GUIDELINES.find((sn) => sn.year === year);
+  return (
+    <section>
+      <div className="section-head">
+        <button type="button" className="ghost" onClick={() => setYear(null)}>
+          &larr; All years
+        </button>
+        <h2 className="section-title">{year} guidelines</h2>
+      </div>
+      <div className="tile-grid">
+        {(season?.items ?? []).map((g) => (
+          <a
+            key={g.url}
+            className="tile"
+            href={g.url}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <div className="tile-thumb">
+              <div className="tile-preview" aria-hidden>
+                <span className="tile-line" />
+                <span className="tile-line" />
+                <span className="tile-line short" />
+              </div>
+              {g.archived && <span className="tile-badge">Archived copy</span>}
+            </div>
+            <div className="tile-info">
+              <p className="tile-title">{g.title}</p>
+              <p className="tile-sub">PDF &middot; opens in a new tab</p>
+            </div>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function LessonCard({ title, sub, badge, actions, thumbId }: { title: string; sub: string; badge?: React.ReactNode; actions: React.ReactNode; thumbId?: string }) {
   return (
     <div className="tile">
