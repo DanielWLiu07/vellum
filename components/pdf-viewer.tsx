@@ -17,14 +17,24 @@ type Status = "loading" | "ready" | "error";
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
 
-export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
+export function PdfViewer({
+  proxyUrl = "/api/proxy",
+  token: tokenProp,
+  initialMode,
+}: {
+  proxyUrl?: string;
+  /** Signed capability token. When set (the in-app /view page), the URL
+   *  fragment is ignored; /embed callers keep the fragment contract. */
+  token?: string;
+  initialMode?: Mode;
+}) {
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [claims, setClaims] = useState<ClientClaims | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
   const [scale, setScale] = useState(1.2);
-  const [mode, setMode] = useState<Mode>("scroll");
+  const [mode, setMode] = useState<Mode>(initialMode ?? "scroll");
   const [fitWidth, setFitWidth] = useState(true);
   const [isFull, setIsFull] = useState(false);
   const [showThumbs, setShowThumbs] = useState(false);
@@ -43,12 +53,12 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
       try {
         const hash = window.location.hash.replace(/^#/, "");
         const params = new URLSearchParams(hash);
-        const token = params.get("t");
+        const token = tokenProp ?? params.get("t");
         if (!token) throw new Error("No document token. This viewer must be opened with a signed link.");
 
         const decoded = decodeClaimsUnsafe(token);
         if (!cancelled && decoded) setClaims(decoded);
-        if (params.get("mode") === "slides") setMode("slides");
+        if (!tokenProp && params.get("mode") === "slides") setMode("slides");
 
         const res = await fetch(proxyUrl, {
           method: "POST",
@@ -96,7 +106,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [proxyUrl]);
+  }, [proxyUrl, tokenProp]);
 
   // ---- Render pages whenever the doc / scale / mode / page changes. ----
   const renderPages = useCallback(async () => {

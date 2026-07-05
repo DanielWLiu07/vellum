@@ -46,6 +46,65 @@ const FILTERS: { id: FilterMode; label: string }[] = [
   { id: "mine", label: "My resources" },
 ];
 
+type DocSort = "newest" | "oldest" | "name-az" | "name-za" | "largest" | "smallest";
+
+const SORTS: { id: DocSort; label: string }[] = [
+  { id: "newest", label: "Newest first" },
+  { id: "oldest", label: "Oldest first" },
+  { id: "name-az", label: "Name A-Z" },
+  { id: "name-za", label: "Name Z-A" },
+  { id: "largest", label: "Largest first" },
+  { id: "smallest", label: "Smallest first" },
+];
+
+function sortDocs(docs: Doc[], sort: DocSort): Doc[] {
+  const out = [...docs];
+  switch (sort) {
+    case "newest": out.sort((a, b) => b.uploadedAt - a.uploadedAt); break;
+    case "oldest": out.sort((a, b) => a.uploadedAt - b.uploadedAt); break;
+    // numeric:true so "Week 2" sorts before "Week 10"; base sensitivity
+    // keeps case/accents from splitting otherwise-equal names.
+    case "name-az": out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })); break;
+    case "name-za": out.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: "base" })); break;
+    case "largest": out.sort((a, b) => b.sizeBytes - a.sizeBytes); break;
+    case "smallest": out.sort((a, b) => a.sizeBytes - b.sizeBytes); break;
+  }
+  return out;
+}
+
+/** Search + sort strip shared by every document grid. */
+function DocToolbar({ q, setQ, sort, setSort, shown, total }: {
+  q: string; setQ: (v: string) => void;
+  sort: DocSort; setSort: (v: DocSort) => void;
+  shown: number; total: number;
+}) {
+  return (
+    <div className="resource-toolbar">
+      <input
+        className="search-input"
+        type="search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search by name or uploader"
+        aria-label="Search documents"
+      />
+      <select
+        className="sort-select"
+        value={sort}
+        onChange={(e) => setSort(e.target.value as DocSort)}
+        aria-label="Sort documents"
+      >
+        {SORTS.map((o) => (
+          <option key={o.id} value={o.id}>{o.label}</option>
+        ))}
+      </select>
+      <span className="toolbar-count">
+        {shown === total ? `${total} total` : `${shown} of ${total}`}
+      </span>
+    </div>
+  );
+}
+
 // Sections an advisor shares with students (they are a student too); anything
 // else in the advisor menu is advisor-only and renders in AdvisorView.
 const STUDENT_SECTIONS = new Set(["home", "assignments", "resources", "flashcards", "quizzes", "skills"]);
@@ -244,6 +303,11 @@ export function Dashboard() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
+  // Preserve the operator's place: /view links carry a validated back-target
+  // so the viewer's "Dashboard" link restores this exact role + section
+  // (the deep-link effect above re-hydrates them).
+  const viewQuery = `?back=${encodeURIComponent(`/dashboard?role=${role}&section=${section}`)}`;
+
   const view = useCallback(async (docId: string, watermark = "") => {
     const res = await fetch("/api/share", {
       method: "POST",
@@ -278,7 +342,7 @@ export function Dashboard() {
   const active = ROLES.find((r) => r.id === role)!;
   const shared = {
     docs, onView: view, onShare: setShareDoc, onDelete, onUploadClick: pickFile,
-    uploading, loading, loadError, onRetry,
+    uploading, loading, loadError, onRetry, viewQuery,
   };
 
   return (
@@ -332,10 +396,10 @@ export function Dashboard() {
         <main className="dash-main">
           <p className="dash-sub" style={{ marginBottom: 20 }}>{active.blurb}</p>
           {section === "guidelines" && <GuidelinesView />}
-          {section !== "guidelines" && role === "student" && <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />}
+          {section !== "guidelines" && role === "student" && <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />}
           {section !== "guidelines" && role === "trainer" && <TrainerView section={section} {...shared} onAssign={setAssignTo} />}
           {section !== "guidelines" && role === "advisor" && (STUDENT_SECTIONS.has(section)
-            ? <StudentView section={section} docs={docs} onView={view} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />
+            ? <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />
             : <AdvisorView section={section} {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />)}
           {section !== "guidelines" && role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
         </main>
@@ -488,6 +552,7 @@ function LessonCard({ title, sub, badge, actions, thumbId }: { title: string; su
 type SharedProps = {
   docs: Doc[];
   onView: (id: string, wm?: string) => void;
+  viewQuery: string;
   onShare: (d: Doc) => void;
   onDelete: (d: Doc) => void;
   onUploadClick: () => void;
@@ -497,13 +562,28 @@ type SharedProps = {
   onRetry: () => void;
 };
 
-function DocManager({ docs, onView, onShare, onDelete, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true }: SharedProps & { heading: string; canUpload?: boolean }) {
+function DocManager({ docs, viewQuery, onShare, onDelete, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true }: Omit<SharedProps, "onView"> & { heading: string; canUpload?: boolean }) {
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState<DocSort>("newest");
+  const term = q.trim().toLowerCase();
+  const visible = sortDocs(
+    docs.filter(
+      (d) =>
+        !term ||
+        d.name.toLowerCase().includes(term) ||
+        d.owner.toLowerCase().includes(term),
+    ),
+    sort,
+  );
   return (
     <section className="role-section">
       <div className="section-head">
         <h2>{heading}</h2>
         {canUpload && <button className="cta" disabled={uploading} onClick={onUploadClick}>{uploading ? "Uploading..." : "+ Upload PDF"}</button>}
       </div>
+      {!loading && !loadError && docs.length > 0 && (
+        <DocToolbar q={q} setQ={setQ} sort={sort} setSort={setSort} shown={visible.length} total={docs.length} />
+      )}
       <div className="tile-grid">
         {loading ? (
           [0, 1, 2].map((i) => (
@@ -519,14 +599,18 @@ function DocManager({ docs, onView, onShare, onDelete, onUploadClick, uploading,
         ) : docs.length === 0 ? (
           <div className="empty-state">No documents yet. {canUpload && "Click + Upload PDF to add one."}</div>
         ) : (
-          docs.map((d) => (
+          visible.length === 0 ? (
+            <div className="empty-state">No documents match.</div>
+          ) : (
+          visible.map((d) => (
             <LessonCard key={d.id} title={d.name} sub={`${d.bundled ? "Sample" : "Uploaded"} · ${(d.sizeBytes / 1024).toFixed(0)} KB`}
               actions={<>
                 <button className="btn" onClick={() => onShare(d)}>Share</button>
-                <button className="btn primary" onClick={() => onView(d.id)}>View</button>
+                <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>View</Link>
                 {!d.bundled && <button className="btn danger" onClick={() => onDelete(d)}>Delete</button>}
               </>} />
           ))
+          )
         )}
       </div>
     </section>
@@ -547,12 +631,13 @@ function ViewerModal({ src, onClose }: { src: string; onClose: () => void }) {
 
 /* ---------------------------------------------------------------- role views */
 
-function StudentView({ section, docs, onView, onStart, uploading, onUploadClick, onShareScope }: { section: string; docs: Doc[]; onView: (id: string, wm?: string) => void; onStart: (title: string) => void; uploading: boolean; onUploadClick: () => void; onShareScope: (d: Doc) => void }) {
+function StudentView({ section, docs, viewQuery, onStart, uploading, onUploadClick, onShareScope }: { section: string; docs: Doc[]; viewQuery: string; onStart: (title: string) => void; uploading: boolean; onUploadClick: () => void; onShareScope: (d: Doc) => void }) {
   const done = STUDENT_ASSIGNMENTS.filter((a) => a.status === "done").length;
   const total = STUDENT_ASSIGNMENTS.length;
   const pct = Math.round((done / total) * 100);
   const next = STUDENT_ASSIGNMENTS.find((a) => a.status !== "done");
   const [q, setQ] = useState("");
+  const [sort, setSort] = useState<DocSort>("newest");
   const [mode, setMode] = useState<FilterMode>("accessible");
 
   if (section === "home") {
@@ -586,9 +671,15 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick,
               <p className="lesson-title">{next.title}</p>
             </div>
             <div className="lesson-end">
-              <button className="btn primary" onClick={() => (next.kind === "document" && next.docId ? onView(next.docId) : onStart(next.title))}>
-                {next.status === "in_progress" ? "Continue" : "Start"}
-              </button>
+              {next.kind === "document" && next.docId ? (
+                <Link className="btn primary" href={`/view/${next.docId}${viewQuery}`}>
+                  {next.status === "in_progress" ? "Continue" : "Start"}
+                </Link>
+              ) : (
+                <button className="btn primary" onClick={() => onStart(next.title)}>
+                  {next.status === "in_progress" ? "Continue" : "Start"}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -607,7 +698,7 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick,
               sub={`${a.kind === "quiz" ? "Quiz" : "Lesson"} · ${a.from}${a.due ? ` · due ${a.due}` : ""}`}
               badge={<StatusBadge status={a.status} />}
               actions={a.kind === "document" && a.docId
-                ? <button className="btn primary" onClick={() => onView(a.docId!)}>Open</button>
+                ? <Link className="btn primary" href={`/view/${a.docId}${viewQuery}`}>Open</Link>
                 : <button className="btn primary" onClick={() => onStart(a.title)}>{a.status === "done" ? "Review" : "Start"}</button>} />
           ))}
         </div>
@@ -623,8 +714,15 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick,
       public: 0,
       chapter: 0,
     };
-    const visible = filterScoped(docs, DEMO_VIEWER, mode).filter(
-      (d) => !term || d.name.toLowerCase().includes(term),
+    const scoped = filterScoped(docs, DEMO_VIEWER, mode);
+    const visible = sortDocs(
+      scoped.filter(
+        (d) =>
+          !term ||
+          d.name.toLowerCase().includes(term) ||
+          d.owner.toLowerCase().includes(term),
+      ),
+      sort,
     );
     const mineEmpty = mode === "mine" && visible.length === 0 && !term;
     return (
@@ -654,16 +752,7 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick,
             ? "Files you uploaded. They start private; use Share to let your chapter or everyone see them."
             : `Everything shared with you, viewing as a member of ${DEMO_VIEWER.chapter}.`}
         </p>
-        <div className="resource-toolbar">
-          <input
-            className="search-input"
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search resources"
-            aria-label="Search resources"
-          />
-        </div>
+        <DocToolbar q={q} setQ={setQ} sort={sort} setSort={setSort} shown={visible.length} total={scoped.length} />
         <div className="tile-grid">
           {visible.map((d) => (
             <LessonCard key={d.id} title={d.name} thumbId={d.thumbnailId}
@@ -671,7 +760,7 @@ function StudentView({ section, docs, onView, onStart, uploading, onUploadClick,
               sub={`${d.bundled ? "HOSA official" : d.owner === DEMO_VIEWER.owner ? "Your upload" : "Shared by a member"}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}`}
               actions={
                 <>
-                  <button className="btn primary" onClick={() => onView(d.id)}>Open</button>
+                  <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>Open</Link>
                   {d.owner === DEMO_VIEWER.owner && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
                 </>
               } />
