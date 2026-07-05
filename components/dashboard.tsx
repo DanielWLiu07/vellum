@@ -119,7 +119,15 @@ function useModal(onClose: () => void) {
 
 /* ---------------------------------------------------------------- main */
 
-type NavItem = { id: string; label: string; soon?: boolean };
+// `href` items render as real links (Upload / Guidelines pages) instead of
+// section switches — first-class rows in the same list, same styling.
+type NavItem = { id: string; label: string; soon?: boolean; href?: string };
+
+// Every role gets Upload + Guidelines at the bottom of their section list.
+const COMMON_LINKS: NavItem[] = [
+  { id: "upload", label: "Upload", href: "/upload" },
+  { id: "guidelines", label: "Guidelines", href: "/guidelines" },
+];
 
 // Left-nav sections per role. `soon` items are round-2 features (not built yet).
 const NAV: Record<Role, NavItem[]> = {
@@ -130,6 +138,7 @@ const NAV: Record<Role, NavItem[]> = {
     { id: "flashcards", label: "Flashcards" },
     { id: "quizzes", label: "Quizzes" },
     { id: "skills", label: "General skills", soon: true },
+    ...COMMON_LINKS,
   ],
   trainer: [
     { id: "lessons", label: "My lessons" },
@@ -137,6 +146,7 @@ const NAV: Record<Role, NavItem[]> = {
     { id: "flashcards", label: "Flashcards" },
     { id: "quizzes", label: "Quizzes" },
     { id: "skills", label: "General skills", soon: true },
+    ...COMMON_LINKS,
   ],
   // An advisor is also a student (some students are advisors), so they get the
   // full student menu plus their advisor-only sections.
@@ -149,6 +159,7 @@ const NAV: Record<Role, NavItem[]> = {
     { id: "trainers", label: "My trainers" },
     { id: "lessons", label: "Chapter lessons" },
     { id: "skills", label: "General skills", soon: true },
+    ...COMMON_LINKS,
   ],
   admin: [
     { id: "overview", label: "Overview" },
@@ -157,6 +168,7 @@ const NAV: Record<Role, NavItem[]> = {
     { id: "access", label: "Roles & access" },
     { id: "activity", label: "Activity log" },
     { id: "settings", label: "Settings" },
+    ...COMMON_LINKS,
   ],
 };
 
@@ -286,22 +298,30 @@ export function Dashboard() {
             </select>
           </div>
           <nav className="dash-nav" aria-label="Sections">
-            {NAV[role].map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`dash-nav-item${section === item.id ? " is-active" : ""}${item.soon ? " is-soon" : ""}`}
-                aria-current={section === item.id}
-                data-testid={`nav-${item.id}`}
-                onClick={() => setSection(item.id)}
-              >
-                <span className="dash-nav-label">{item.label}</span>
-                {item.soon && <span className="dash-nav-soon">Soon</span>}
-              </button>
-            ))}
-            <Link href="/guidelines" className="dash-nav-item dash-nav-link" data-testid="nav-guidelines">
-              <span className="dash-nav-label">Guidelines</span>
-            </Link>
+            {NAV[role].map((item) =>
+              item.href ? (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className="dash-nav-item dash-nav-link"
+                  data-testid={`nav-${item.id}`}
+                >
+                  <span className="dash-nav-label">{item.label}</span>
+                </Link>
+              ) : (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`dash-nav-item${section === item.id ? " is-active" : ""}${item.soon ? " is-soon" : ""}`}
+                  aria-current={section === item.id}
+                  data-testid={`nav-${item.id}`}
+                  onClick={() => setSection(item.id)}
+                >
+                  <span className="dash-nav-label">{item.label}</span>
+                  {item.soon && <span className="dash-nav-soon">Soon</span>}
+                </button>
+              ),
+            )}
           </nav>
         </aside>
 
