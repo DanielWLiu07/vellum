@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { GuidelinesByYear } from "@/components/guidelines-by-year";
+
 export const metadata: Metadata = {
-  title: "HOSA Vitals - content guidelines",
-  description: "What you can and can't share in the Vitals resource pool.",
+  title: "HOSA Vitals - guidelines",
+  description:
+    "Official HOSA Canada event guidelines by year, plus what you can and can't share in the Vitals resource pool.",
 };
 
 export default function GuidelinesPage() {
@@ -64,6 +67,15 @@ export default function GuidelinesPage() {
         <p className="guidelines-cta">
           <Link href="/upload" className="cta">Upload a resource</Link>
         </p>
+
+        <h2>Official event guidelines by year</h2>
+        <p className="dash-sub">
+          The official HOSA Canada competitive-event guidelines for each
+          season, including past years. Links open the source PDF; entries
+          marked &ldquo;archived copy&rdquo; are served from the Internet
+          Archive because the original was taken down.
+        </p>
+        <GuidelinesByYear />
       </article>
     </main>
   );
