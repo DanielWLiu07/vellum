@@ -108,8 +108,16 @@ export function PdfViewer({
     };
   }, [proxyUrl, tokenProp]);
 
+  // Monotonic render-pass id. renderPages is async and awaits between page
+  // appends; when scale/mode changes mid-pass (fit-width fires right after
+  // load), a second pass starts while the first is still looping — without
+  // this guard both passes interleave appends at two different scales
+  // (pages alternating small/big). Stale passes bail at every await point.
+  const renderGen = useRef(0);
+
   // ---- Render pages whenever the doc / scale / mode / page changes. ----
   const renderPages = useCallback(async () => {
+    const gen = ++renderGen.current;
     const container = containerRef.current;
     if (!container) return;
     const wm = claims?.wm ?? "";
@@ -125,6 +133,7 @@ export function PdfViewer({
         img.onerror = () => resolve();
         img.src = url;
       });
+      if (gen !== renderGen.current) { URL.revokeObjectURL(url); return; }
       container.replaceChildren();
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.floor(img.naturalWidth * scale));
@@ -148,6 +157,7 @@ export function PdfViewer({
     const pages = mode === "slides" ? [page] : range(1, doc.numPages);
     for (const n of pages) {
       const pdfPage = await doc.getPage(n);
+      if (gen !== renderGen.current) return; // a newer pass owns the container
       const viewport = pdfPage.getViewport({ scale });
       const canvas = document.createElement("canvas");
       canvas.width = Math.floor(viewport.width);
@@ -157,6 +167,7 @@ export function PdfViewer({
       const ctx = canvas.getContext("2d");
       if (!ctx) continue;
       await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+      if (gen !== renderGen.current) return;
       if (wm) stampWatermark(ctx, canvas.width, canvas.height, wm);
       container.appendChild(canvas);
     }
@@ -265,7 +276,12 @@ export function PdfViewer({
       const container = containerRef.current;
       if (!doc || !container) return;
       const native = (await doc.getPage(1)).getViewport({ scale: 1 }).width;
-      const avail = container.clientWidth - 56; // matches .vellum-scroll padding
+      // Google-Docs-style default zoom: fill the container on small screens,
+      // but never balloon past a comfortable reading width on big ones — Docs
+      // renders its page ~820px wide, centered on the gray canvas. The zoom
+      // buttons still go well past this; it's only the FIT target.
+      const MAX_FIT_WIDTH = 860;
+      const avail = Math.min(container.clientWidth - 56, MAX_FIT_WIDTH); // 56 matches .vellum-scroll padding
       if (cancelled || native <= 0 || avail <= 0) return;
       setScale(Math.min(MAX_SCALE, Math.max(0.25, +(avail / native).toFixed(3))));
     };
