@@ -1572,10 +1572,30 @@ h3 {
    INTERNAL scroller owns document scrolling — min-height would let content
    grow the page and reintroduce the double scrollbar. */
 .viewer-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-.viewer-page-nav { flex-wrap: wrap; gap: 8px 16px; }
-.viewer-page-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; margin: 0 16px; }
-.viewer-page-title { font-weight: 700; color: var(--ink, #102434); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.viewer-page-sub { font-size: 12px; color: #5b6b78; }
+/* Compact Google-Docs-style header: one slim row (the .dash-topnav defaults
+   are sized for dashboard pages — big bottom padding + margin would waste a
+   third of the viewer's chrome). */
+.viewer-page-nav {
+  flex-wrap: nowrap;
+  gap: 8px 16px;
+  padding: 8px 16px;
+  margin-bottom: 0;
+}
+.viewer-page-nav .dash-brand { font-size: 16px; }
+.viewer-page-meta {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  margin: 0 12px;
+  overflow: hidden;
+}
+.viewer-page-title { font-weight: 700; font-size: 15px; color: var(--ink, #102434); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.viewer-page-sub { font-size: 12px; color: #5b6b78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Slimmer viewer toolbar on the dedicated page (embed keeps its default). */
+.viewer-page-frame .vellum-toolbar { padding: 6px 12px; }
 .viewer-page-status { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 64px 20px; color: #5b6b78; text-align: center; }
 .viewer-page-frame { flex: 1; display: flex; min-height: 0; }
 .viewer-page-frame > * { flex: 1; }
@@ -1602,3 +1622,72 @@ a.cta { text-decoration: none; }
    forcing its embed-mode 100vh (which added topnav-height of page overflow
    and a second scrollbar). */
 .viewer-page-frame .vellum-root { height: 100%; min-height: 0; }
+
+/* ---- Share dialog (Google-Docs-style people + general access) ---- */
+.share-dialog { max-width: 460px; }
+.share-dialog-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-add-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.share-add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.share-section-label {
+  margin: 16px 0 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.share-person-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+.share-person-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-person-role {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+.share-empty {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+.share-general-select { width: 100%; }
+.share-general-hint {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+/* "Make a copy" in the viewer top nav reads like the other nav links. */
+button.viewer-copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+button.viewer-copy-btn:disabled { opacity: 0.6; cursor: default; }

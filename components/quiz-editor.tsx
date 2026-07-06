@@ -8,12 +8,45 @@ type Q = { prompt: string; choices: string[]; correctIndex: number };
 const blankQ = (): Q => ({ prompt: "", choices: ["", ""], correctIndex: 0 });
 const ready = (q: Q) => q.prompt.trim() && q.choices.filter((c) => c.trim()).length >= 2;
 
-export function QuizEditor() {
+/**
+ * Create a quiz, or — with `editId` — edit an existing one in place. Edit mode
+ * loads the full quiz INCLUDING the answer key via `?edit=1`, which the server
+ * only serves to the owner or a granted editor.
+ */
+export function QuizEditor({ editId }: { editId?: string } = {}) {
   const [title, setTitle] = React.useState("");
   const [questions, setQuestions] = React.useState<Q[]>([blankQ()]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState<{ id: string; title: string; questionCount: number } | null>(null);
+  const [editState, setEditState] = React.useState<"ready" | "loading" | "denied">(editId ? "loading" : "ready");
+
+  // Edit mode: load the existing quiz (with the answer key) into the form.
+  React.useEffect(() => {
+    if (!editId) return;
+    let cancelled = false;
+    (async () => {
+      const res = await fetch(`/api/quizzes/${editId}?edit=1`, { cache: "no-store" }).catch(() => null);
+      const j = res?.ok ? await res.json().catch(() => null) : null;
+      if (cancelled) return;
+      if (!j?.quiz?.questions) {
+        setEditState("denied");
+        return;
+      }
+      setTitle(j.quiz.title);
+      setQuestions(
+        (j.quiz.questions as Q[]).map((q) => ({
+          prompt: q.prompt ?? "",
+          choices: Array.isArray(q.choices) && q.choices.length >= 2 ? [...q.choices] : ["", ""],
+          correctIndex: q.correctIndex ?? 0,
+        })),
+      );
+      setEditState("ready");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editId]);
 
   const patch = (i: number, p: Partial<Q>) => setQuestions((qs) => qs.map((q, j) => (j === i ? { ...q, ...p } : q)));
   const addQuestion = () => setQuestions((qs) => [...qs, blankQ()]);
@@ -38,11 +71,17 @@ export function QuizEditor() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/quizzes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, questions: usable }),
-      });
+      const res = editId
+        ? await fetch(`/api/quizzes/${editId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, questions: usable }),
+          })
+        : await fetch("/api/quizzes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, questions: usable }),
+          });
       if (!res.ok) {
         setError("Couldn't save the quiz.");
         return;
@@ -53,12 +92,25 @@ export function QuizEditor() {
     }
   }
 
+  if (editState === "loading") {
+    return <div className="upload-card"><p className="dash-sub">Loading the quiz...</p></div>;
+  }
+  if (editState === "denied") {
+    return (
+      <div className="upload-card">
+        <h1 className="upload-h">Can&apos;t edit this quiz</h1>
+        <p className="dash-sub">It doesn&apos;t exist, or you don&apos;t have editor access. Ask the owner to add you as an editor, or make a copy instead.</p>
+        <div className="upload-actions"><Link className="btn" href="/dashboard">Back to dashboard</Link></div>
+      </div>
+    );
+  }
+
   if (saved) {
     return (
       <div className="upload-card">
-        <span className="pill">Created</span>
+        <span className="pill">{editId ? "Saved" : "Created"}</span>
         <h1 className="upload-h">{saved.title} - {saved.questionCount} question{saved.questionCount === 1 ? "" : "s"}</h1>
-        <p className="dash-sub">Your quiz is in the shared pool. Anyone in your chapter can take it.</p>
+        <p className="dash-sub">{editId ? "Your changes are live for everyone who can see this quiz." : "Your quiz is in the shared pool. Anyone in your chapter can take it."}</p>
         <div className="upload-actions">
           <Link className="cta" href={`/quizzes/${saved.id}`}>Take it</Link>
           <Link className="btn" href="/dashboard">Back to dashboard</Link>
@@ -70,7 +122,7 @@ export function QuizEditor() {
   const count = questions.filter(ready).length;
   return (
     <form className="upload-card" onSubmit={save}>
-      <h1 className="upload-h">Create a quiz</h1>
+      <h1 className="upload-h">{editId ? `Edit quiz${title ? `: ${title}` : ""}` : "Create a quiz"}</h1>
       <p className="dash-sub">
         Write multiple-choice questions and mark the correct answer. It joins the shared pool for
         self-testing. (Graded FLC exams live in the main HOSA platform.)
@@ -127,7 +179,7 @@ export function QuizEditor() {
       {error && <p className="upload-error" role="alert">{error}</p>}
       <div>
         <button type="submit" className="cta" disabled={busy || count === 0}>
-          {busy ? "Saving..." : `Create quiz (${count} question${count === 1 ? "" : "s"})`}
+          {busy ? "Saving..." : editId ? `Save changes (${count} question${count === 1 ? "" : "s"})` : `Create quiz (${count} question${count === 1 ? "" : "s"})`}
         </button>
       </div>
     </form>

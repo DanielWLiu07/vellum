@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
 import { type Card, createDeck, listDecks } from "@/lib/decks";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { DEMO_VIEWER, canView } from "@/lib/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,10 @@ function gated() {
 export async function GET() {
   const off = gated();
   if (off) return off;
-  return NextResponse.json({ decks: listDecks() }, { headers: { "Cache-Control": "no-store" } });
+  // Scoped to what the viewer may see, like /api/docs — private decks and
+  // other-chapter decks are not leaked into the shared list.
+  const decks = listDecks().filter((d) => canView(d, DEMO_VIEWER));
+  return NextResponse.json({ decks }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(req: NextRequest) {
@@ -45,7 +49,7 @@ export async function POST(req: NextRequest) {
   if (cards.length === 0) {
     return NextResponse.json({ error: "no_cards" }, { status: 400 });
   }
-  const deck = createDeck(title, cards);
+  const deck = createDeck(title, cards, DEMO_VIEWER.owner);
   recordAudit("deck.create", deck.title, clientIp(req));
   return NextResponse.json({ id: deck.id, title: deck.title, cardCount: deck.cards.length });
 }

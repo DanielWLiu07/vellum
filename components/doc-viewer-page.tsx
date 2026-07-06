@@ -10,6 +10,7 @@
 // title, ownership/visibility metadata, and friendly error states.
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { PdfViewer } from "@/components/pdf-viewer";
@@ -54,6 +55,22 @@ export function DocViewerPage({
   initialMode?: "scroll" | "slides";
 }) {
   const [state, setState] = useState<State>({ kind: "loading" });
+  const [copying, setCopying] = useState(false);
+  const router = useRouter();
+
+  // Google-Docs "Make a copy" from inside the viewer: clone, then open the
+  // copy (it's private and yours — the back link still returns to the same
+  // dashboard spot).
+  async function makeCopy() {
+    if (copying) return;
+    setCopying(true);
+    const res = await fetch(`/api/doc/${id}/copy`, { method: "POST" }).catch(() => null);
+    setCopying(false);
+    if (res?.ok) {
+      const j = await res.json().catch(() => null);
+      if (j?.id) router.push(`/view/${j.id}?back=${encodeURIComponent(backHref)}`);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -148,6 +165,11 @@ export function DocViewerPage({
           )}
         </div>
         <span className="dash-topnav-links">
+          {state.kind === "ready" && (
+            <button type="button" className="dash-back viewer-copy-btn" onClick={makeCopy} disabled={copying}>
+              {copying ? "Copying..." : "Make a copy"}
+            </button>
+          )}
           <Link href={backHref} className="dash-back">Dashboard</Link>
         </span>
       </nav>

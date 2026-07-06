@@ -60,10 +60,17 @@ export const memoryBackend: StorageBackend = {
       bytes,
     };
     store.set(rec.id, rec);
-    // Evict the oldest beyond the cap.
-    const oldestFirst = [...store.values()].sort((a, b) => a.uploadedAt - b.uploadedAt);
-    while (oldestFirst.length > MAX_UPLOADS) {
-      const old = oldestFirst.shift();
+    // Cap the store, but only ever evict the NEW owner's own oldest uploads.
+    // A global oldest-first eviction let anyone who can copy a resource (copy
+    // is gated on canView, not ownership) push the store over cap and silently
+    // delete another owner's documents — bypassing the owner-only delete gate
+    // (security review finding). Scoping eviction to the caller makes the cap a
+    // per-owner bound and keeps it destruction-safe.
+    const mine = [...store.values()]
+      .filter((r) => r.owner === rec.owner)
+      .sort((a, b) => a.uploadedAt - b.uploadedAt);
+    while (mine.length > MAX_UPLOADS) {
+      const old = mine.shift();
       if (old) store.delete(old.id);
     }
     return meta(rec);

@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createDeck, deleteDeck, getDeck, listDecks, parseCards } from "./decks";
+import { createDeck as createDeckRaw, deleteDeck, duplicateDeck, getDeck, listDecks, parseCards, updateDeck } from "./decks";
+
+// The store now requires an owner (Google-Docs-style ownership); these
+// content-validation tests all create as the demo viewer.
+const createDeck = (title: Parameters<typeof createDeckRaw>[0], items: Parameters<typeof createDeckRaw>[1]) =>
+  createDeckRaw(title, items, "you");
 
 describe("parseCards", () => {
   it("parses tab-separated (Quizlet) lines", () => {
@@ -66,5 +71,57 @@ describe("deck store", () => {
     expect(getDeck(d.id)).toBeUndefined();
     expect(deleteDeck("sample-deck")).toBe(false);
     expect(getDeck("sample-deck")).toBeDefined();
+  });
+});
+
+describe("deck ownership + editing", () => {
+  it("createDeck records the owner; scope defaults to the shared pool", () => {
+    const d = createDeckRaw("Owned", [{ front: "a", back: "b" }], "ava");
+    try {
+      const got = getDeck(d.id)!;
+      expect(got.owner).toBe("ava");
+      expect(got.visibility).toBe("public");
+      expect(got.people).toEqual([]);
+    } finally {
+      deleteDeck(d.id);
+    }
+  });
+
+  it("updateDeck edits title and cards in place", () => {
+    const d = createDeck("Before", [{ front: "a", back: "b" }]);
+    try {
+      const updated = updateDeck(d.id, { title: "After", cards: [{ front: "x", back: "y" }, { front: "z", back: "w" }] })!;
+      expect(updated.title).toBe("After");
+      expect(updated.cards).toHaveLength(2);
+    } finally {
+      deleteDeck(d.id);
+    }
+  });
+
+  it("updateDeck refuses to empty a deck and refuses the sample", () => {
+    const d = createDeck("Keep", [{ front: "a", back: "b" }]);
+    try {
+      expect(updateDeck(d.id, { cards: [{ front: "", back: "" }] })).toBeUndefined();
+      expect(getDeck(d.id)!.cards).toHaveLength(1);
+      expect(updateDeck("sample-deck", { title: "hijack" })).toBeUndefined();
+    } finally {
+      deleteDeck(d.id);
+    }
+  });
+
+  it("duplicateDeck clones content under the new owner, independently", () => {
+    const src = createDeck("Original", [{ front: "a", back: "b" }]);
+    const copy = duplicateDeck(src.id, "ben")!;
+    try {
+      expect(copy.title).toBe("Copy of Original");
+      expect(copy.owner).toBe("ben");
+      expect(copy.cards).toEqual(src.cards);
+      // Deep copy: editing the clone leaves the source untouched.
+      updateDeck(copy.id, { cards: [{ front: "changed", back: "c" }] });
+      expect(getDeck(src.id)!.cards[0]!.front).toBe("a");
+    } finally {
+      deleteDeck(src.id);
+      deleteDeck(copy.id);
+    }
   });
 });

@@ -8,11 +8,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityLog } from "./activity-log";
 import { FlashcardsView } from "./flashcards-view";
 import { QuizzesView } from "./quizzes-view";
+import { ShareDialog } from "./share-dialog";
+import { useModal } from "./use-modal";
 import {
   DEMO_VIEWER,
-  VISIBILITIES,
+  canManageSharing,
   filterScoped,
   type FilterMode,
+  type PersonShare,
   type Visibility,
 } from "@/lib/visibility";
 import {
@@ -36,6 +39,7 @@ interface Doc {
   visibility: Visibility;
   chapter: string;
   owner: string;
+  people: PersonShare[];
   thumbnailId?: string;
 }
 
@@ -127,55 +131,6 @@ function useToasts() {
     </div>
   );
   return { notify, node };
-}
-
-/** Close a modal/overlay when Escape is pressed. */
-function useEscape(onClose: () => void) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-}
-
-/**
- * Dialog focus management: Escape to close, Tab trapped within the modal,
- * first control focused on open, and focus restored to the trigger on close.
- * Returns a ref to attach to the modal's content element.
- */
-function useModal(onClose: () => void) {
-  useEscape(onClose);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const root = ref.current;
-    const restoreTo = document.activeElement as HTMLElement | null;
-    const selector =
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    const focusables = () => (root ? Array.from(root.querySelectorAll<HTMLElement>(selector)) : []);
-    focusables()[0]?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      const items = focusables();
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    root?.addEventListener("keydown", onKey);
-    return () => {
-      root?.removeEventListener("keydown", onKey);
-      restoreTo?.focus?.();
-    };
-  }, []);
-  return ref;
 }
 
 /* ---------------------------------------------------------------- main */
@@ -339,9 +294,21 @@ export function Dashboard() {
     else notify("Couldn't delete the document.");
   }, [refresh, notify]);
 
+  // Google-Docs "Make a copy": the clone lands in My resources, private.
+  const onCopy = useCallback(async (doc: Doc) => {
+    const res = await fetch(`/api/doc/${doc.id}/copy`, { method: "POST" }).catch(() => null);
+    if (res?.ok) {
+      const j = await res.json();
+      await refresh();
+      notify(`Created "${j.name}" in My resources (private)`);
+    } else {
+      notify("Couldn't copy the document.");
+    }
+  }, [refresh, notify]);
+
   const active = ROLES.find((r) => r.id === role)!;
   const shared = {
-    docs, onView: view, onShare: setShareDoc, onDelete, onUploadClick: pickFile,
+    docs, onView: view, onShare: setShareDoc, onShareScope: setShareScopeDoc, onDelete, onCopy, onUploadClick: pickFile,
     uploading, loading, loadError, onRetry, viewQuery,
   };
 
@@ -396,10 +363,10 @@ export function Dashboard() {
         <main className="dash-main">
           <p className="dash-sub" style={{ marginBottom: 20 }}>{active.blurb}</p>
           {section === "guidelines" && <GuidelinesView />}
-          {section !== "guidelines" && role === "student" && <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />}
+          {section !== "guidelines" && role === "student" && <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} />}
           {section !== "guidelines" && role === "trainer" && <TrainerView section={section} {...shared} onAssign={setAssignTo} />}
           {section !== "guidelines" && role === "advisor" && (STUDENT_SECTIONS.has(section)
-            ? <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} />
+            ? <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} />
             : <AdvisorView section={section} {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />)}
           {section !== "guidelines" && role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
         </main>
@@ -409,10 +376,18 @@ export function Dashboard() {
 
       {shareDoc && <ShareModal doc={shareDoc} onClose={() => setShareDoc(null)} onView={view} notify={notify} />}
       {shareScopeDoc && (
-        <ShareScopeModal
-          doc={shareScopeDoc}
+        <ShareDialog
+          target={{
+            kind: "doc",
+            id: shareScopeDoc.id,
+            name: shareScopeDoc.name,
+            visibility: shareScopeDoc.visibility,
+            chapter: shareScopeDoc.chapter,
+            people: shareScopeDoc.people,
+            owner: shareScopeDoc.owner,
+          }}
           onClose={() => setShareScopeDoc(null)}
-          onSaved={(v) => { setShareScopeDoc(null); notify(`Sharing set to ${v}`); void refresh(); }}
+          onSaved={(m) => { setShareScopeDoc(null); notify(m); void refresh(); }}
         />
       )}
       {assignTo && (
@@ -554,7 +529,9 @@ type SharedProps = {
   onView: (id: string, wm?: string) => void;
   viewQuery: string;
   onShare: (d: Doc) => void;
+  onShareScope: (d: Doc) => void;
   onDelete: (d: Doc) => void;
+  onCopy: (d: Doc) => void;
   onUploadClick: () => void;
   uploading: boolean;
   loading: boolean;
@@ -562,7 +539,7 @@ type SharedProps = {
   onRetry: () => void;
 };
 
-function DocManager({ docs, viewQuery, onShare, onDelete, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true }: Omit<SharedProps, "onView"> & { heading: string; canUpload?: boolean }) {
+function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true }: Omit<SharedProps, "onView"> & { heading: string; canUpload?: boolean }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<DocSort>("newest");
   const term = q.trim().toLowerCase();
@@ -605,9 +582,11 @@ function DocManager({ docs, viewQuery, onShare, onDelete, onUploadClick, uploadi
           visible.map((d) => (
             <LessonCard key={d.id} title={d.name} sub={`${d.bundled ? "Sample" : "Uploaded"} · ${(d.sizeBytes / 1024).toFixed(0)} KB`}
               actions={<>
-                <button className="btn" onClick={() => onShare(d)}>Share</button>
                 <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>View</Link>
-                {!d.bundled && <button className="btn danger" onClick={() => onDelete(d)}>Delete</button>}
+                {!d.bundled && canManageSharing(d, DEMO_VIEWER) && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
+                <button className="btn" onClick={() => onShare(d)}>Get link</button>
+                <button className="btn" onClick={() => onCopy(d)}>Make a copy</button>
+                {!d.bundled && d.owner === DEMO_VIEWER.owner && <button className="btn danger" onClick={() => onDelete(d)}>Delete</button>}
               </>} />
           ))
           )
@@ -631,7 +610,7 @@ function ViewerModal({ src, onClose }: { src: string; onClose: () => void }) {
 
 /* ---------------------------------------------------------------- role views */
 
-function StudentView({ section, docs, viewQuery, onStart, uploading, onUploadClick, onShareScope }: { section: string; docs: Doc[]; viewQuery: string; onStart: (title: string) => void; uploading: boolean; onUploadClick: () => void; onShareScope: (d: Doc) => void }) {
+function StudentView({ section, docs, viewQuery, onStart, uploading, onUploadClick, onShareScope, onCopy }: { section: string; docs: Doc[]; viewQuery: string; onStart: (title: string) => void; uploading: boolean; onUploadClick: () => void; onShareScope: (d: Doc) => void; onCopy: (d: Doc) => void }) {
   const done = STUDENT_ASSIGNMENTS.filter((a) => a.status === "done").length;
   const total = STUDENT_ASSIGNMENTS.length;
   const pct = Math.round((done / total) * 100);
@@ -757,11 +736,12 @@ function StudentView({ section, docs, viewQuery, onStart, uploading, onUploadCli
           {visible.map((d) => (
             <LessonCard key={d.id} title={d.name} thumbId={d.thumbnailId}
               badge={<span className={`badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>{VIS_LABEL[d.visibility]}</span>}
-              sub={`${d.bundled ? "HOSA official" : d.owner === DEMO_VIEWER.owner ? "Your upload" : "Shared by a member"}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}`}
+              sub={`${d.bundled ? "HOSA official" : d.owner === DEMO_VIEWER.owner ? "Your upload" : "Shared by a member"}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}${d.people.length > 0 ? ` · shared with ${d.people.length}` : ""}`}
               actions={
                 <>
                   <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>Open</Link>
-                  {d.owner === DEMO_VIEWER.owner && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
+                  {!d.bundled && canManageSharing(d, DEMO_VIEWER) && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
+                  <button className="btn" onClick={() => onCopy(d)}>Make a copy</button>
                 </>
               } />
           ))}
@@ -899,50 +879,6 @@ function AdminView({ section, onRole, ...shared }: SharedProps & { section: stri
 }
 
 /* ---------------------------------------------------------------- modals */
-
-function ShareScopeModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; onSaved: (visibility: Visibility) => void }) {
-  const [visibility, setVisibility] = useState<Visibility>(doc.visibility);
-  const [chapter, setChapter] = useState(doc.chapter || "");
-  const [busy, setBusy] = useState(false);
-  const ref = useModal(onClose);
-
-  async function save() {
-    setBusy(true);
-    const res = await fetch(`/api/doc/${doc.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ visibility, chapter }),
-    }).catch(() => null);
-    setBusy(false);
-    if (res?.ok) onSaved(visibility);
-  }
-
-  return (
-    <div className="dash-modal-backdrop" onClick={onClose}>
-      <div className="dash-modal" ref={ref} role="dialog" aria-modal="true" aria-label={`Share ${doc.name}`} onClick={(e) => e.stopPropagation()}>
-        <h2>Share {doc.name}</h2>
-        <p className="dash-muted" style={{ padding: 0, marginTop: 4 }}>Choose who can see this resource.</p>
-        <div className="visibility-options" style={{ marginTop: 12 }}>
-          {VISIBILITIES.map((v) => (
-            <label key={v.id} className={`visibility-option${visibility === v.id ? " is-active" : ""}`}>
-              <input type="radio" name="share-visibility" checked={visibility === v.id} onChange={() => setVisibility(v.id)} />
-              <span className="visibility-label">{v.label}</span>
-              <span className="visibility-hint">{v.hint}</span>
-            </label>
-          ))}
-        </div>
-        {visibility === "chapter" && (
-          <label className="dash-field" style={{ marginTop: 10 }}><span>Chapter</span>
-            <input value={chapter} onChange={(e) => setChapter(e.target.value)} placeholder="e.g. Toronto Central" maxLength={80} /></label>
-        )}
-        <div className="dash-modal-actions">
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="cta" disabled={busy} onClick={save}>{busy ? "Saving..." : "Save sharing"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () => void; onView: (id: string, wm?: string) => void; notify: (m: string) => void }) {
   const [watermark, setWatermark] = useState("");

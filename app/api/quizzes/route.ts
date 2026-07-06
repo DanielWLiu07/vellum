@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
 import { type QuizQuestion, createQuiz, deleteQuiz, listQuizzes } from "@/lib/quizzes";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { DEMO_VIEWER, canView } from "@/lib/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,10 @@ function gated() {
 export async function GET() {
   const off = gated();
   if (off) return off;
-  return NextResponse.json({ quizzes: listQuizzes() }, { headers: { "Cache-Control": "no-store" } });
+  // Scoped to what the viewer may see, like /api/docs — private quizzes and
+  // other-chapter quizzes are not leaked into the shared list.
+  const quizzes = listQuizzes().filter((q) => canView(q, DEMO_VIEWER));
+  return NextResponse.json({ quizzes }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(req: NextRequest) {
@@ -39,7 +43,7 @@ export async function POST(req: NextRequest) {
       choices: Array.isArray(q.choices) ? q.choices.map((c) => String(c ?? "")) : [],
       correctIndex: Number(q.correctIndex ?? 0),
     }));
-  const quiz = createQuiz(title, questions);
+  const quiz = createQuiz(title, questions, DEMO_VIEWER.owner);
   if (quiz.questions.length === 0) {
     deleteQuiz(quiz.id); // nothing survived validation; don't leave an empty quiz
     return NextResponse.json({ error: "no_questions" }, { status: 400 });

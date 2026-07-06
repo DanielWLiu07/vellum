@@ -22,11 +22,23 @@ describe("DELETE /api/doc/[id]", () => {
     expect(res.status).toBe(404);
   });
 
-  it("deletes an uploaded document", async () => {
-    const m = await addUpload("notes.pdf", bytes());
+  it("deletes the caller's own uploaded document", async () => {
+    // Owner "you" matches the demo viewer — the same scope /api/upload sets.
+    const m = await addUpload("notes.pdf", bytes(), "application/pdf", {
+      visibility: "private", chapter: "", owner: "you",
+    });
     const res = await DELETE(req(), ctx(m.id));
     expect(res.status).toBe(200);
     expect(await getDoc(m.id)).toBeUndefined();
+  });
+
+  it("403s deleting someone else's document (owner-only)", async () => {
+    const m = await addUpload("theirs.pdf", bytes(), "application/pdf", {
+      visibility: "public", chapter: "", owner: "someone-else",
+    });
+    const res = await DELETE(req(), ctx(m.id));
+    expect(res.status).toBe(403);
+    expect(await getDoc(m.id)).toBeDefined();
   });
 
   it("404s for a bundled sample (immutable) and leaves it intact", async () => {

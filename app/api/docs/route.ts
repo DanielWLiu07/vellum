@@ -23,6 +23,7 @@ export async function GET() {
     visibility: d.visibility,
     chapter: d.chapter,
     owner: d.owner,
+    people: d.people,
     thumbnailId: getThumbnail(d.id),
   }));
   return NextResponse.json({ docs }, { headers: { "Cache-Control": "no-store" } });
