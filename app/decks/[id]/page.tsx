@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { DeckStudy } from "@/components/deck-study";
+import { ProfileBadge } from "@/components/profile-badge";
 
 export const metadata: Metadata = {
   title: "HOSA Vitals - study",
@@ -18,6 +19,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
         <span className="dash-topnav-links">
           <Link href="/dashboard" className="dash-back">Dashboard</Link>
           <Link href="/upload" className="dash-back">Add content</Link>
+          <ProfileBadge />
         </span>
       </nav>
       {enabled ? (

@@ -12,7 +12,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { getResourceMeta } from "./resource-meta";
 import { getShare } from "./resource-share";
+import { ensureSeeded } from "./seed";
 import { backend, type UploadMeta, type UploadScope } from "./storage";
 import type { PersonShare, Visibility } from "./visibility";
 
@@ -31,6 +33,14 @@ export interface DocMeta {
   owner: string;
   /** Direct per-person grants (Google-Docs-style sharing). */
   people: PersonShare[];
+  /** HOSA competitive event tag, for the event filter + "By event" sort. */
+  event?: string;
+  /** Uploader opted out of the auto page-preview thumbnail. */
+  noPreview?: boolean;
+  /** Official HOSA-created resource: badged and immutable. */
+  official?: boolean;
+  /** Folder this resource is filed in (a Folder id), or unset if unfiled. */
+  folderId?: string;
 }
 
 const BUNDLED: DocMeta[] = [
@@ -46,6 +56,7 @@ const BUNDLED: DocMeta[] = [
     chapter: "",
     owner: "system",
     people: [],
+    official: true,
   },
 ];
 const bundledById = new Map(BUNDLED.map((b) => [b.id, b]));
@@ -54,6 +65,7 @@ function toDocMeta(u: UploadMeta): DocMeta {
   // Uploads start with whatever scope they were stored with (private by default);
   // later shares/renames are recorded in the sidecar and override it here.
   const share = getShare(u.id);
+  const meta = getResourceMeta(u.id);
   return {
     id: u.id,
     name: share?.name ?? u.name,
@@ -65,11 +77,16 @@ function toDocMeta(u: UploadMeta): DocMeta {
     chapter: share?.chapter ?? u.chapter,
     owner: u.owner,
     people: share?.people ?? [],
+    event: meta?.event,
+    noPreview: meta?.noPreview,
+    official: meta?.official,
+    folderId: meta?.folderId,
   };
 }
 
 /** Bundled samples first, then uploads (newest-first from the backend). */
 export async function listDocs(): Promise<DocMeta[]> {
+  await ensureSeeded();
   const uploads = (await backend().list()).map(toDocMeta);
   return [...BUNDLED, ...uploads];
 }

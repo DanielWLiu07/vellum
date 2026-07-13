@@ -1,72 +1,25 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import * as React from "react";
 
 import { parseCards } from "@/lib/parse-cards";
+import type { Visibility } from "@/lib/visibility";
+
+import { ImageField } from "./image-field";
+import { useAutosave, type SaveStatus } from "./use-autosave";
+
+const VISIBILITY_OPTIONS: { id: Visibility; label: string }[] = [
+  { id: "private", label: "Private - just me (draft)" },
+  { id: "chapter", label: "My chapter" },
+  { id: "public", label: "Everyone (shared pool)" },
+];
 
 type Row = { front: string; back: string; frontImageId?: string; backImageId?: string };
 
 const blank = (): Row => ({ front: "", back: "" });
 const hasContent = (r: Row) => Boolean(r.front.trim() || r.back.trim() || r.frontImageId || r.backImageId);
-
-/** Upload a card-side image to /api/images and hand back its id. */
-function ImageField({
-  id,
-  onChange,
-  label,
-}: {
-  id?: string;
-  onChange: (id: string | undefined) => void;
-  label: string;
-}) {
-  const ref = React.useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState(false);
-
-  async function pick(file: File | undefined) {
-    if (!file) return;
-    setBusy(true);
-    setError(false);
-    try {
-      const fd = new FormData();
-      fd.set("file", file);
-      const res = await fetch("/api/images", { method: "POST", body: fd });
-      if (res.ok) onChange((await res.json()).id);
-      else setError(true);
-    } catch {
-      setError(true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (id) {
-    return (
-      <div className="card-img">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={`/api/images/${id}`} alt={`${label} image`} />
-        <button type="button" className="card-img-remove" onClick={() => onChange(undefined)}>
-          Remove image
-        </button>
-      </div>
-    );
-  }
-  return (
-    <>
-      <button type="button" className="card-img-add" onClick={() => ref.current?.click()} disabled={busy}>
-        {busy ? "Uploading..." : error ? "Try again" : "+ Image"}
-      </button>
-      <input
-        ref={ref}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        hidden
-        onChange={(e) => pick(e.target.files?.[0])}
-      />
-    </>
-  );
-}
 
 /**
  * Create a deck, or — with `editId` — edit an existing one in place
@@ -74,14 +27,52 @@ function ImageField({
  * granted editor).
  */
 export function DeckEditor({ editId }: { editId?: string } = {}) {
+  const router = useRouter();
   const [title, setTitle] = React.useState("");
   const [rows, setRows] = React.useState<Row[]>([blank(), blank()]);
   const [paste, setPaste] = React.useState("");
+  const [visibility, setVisibility] = React.useState<Visibility>("private");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [saved, setSaved] = React.useState<{ id: string; title: string; cardCount: number } | null>(null);
   // idle -> ready (create mode is instantly ready); loading/denied for edit mode.
   const [editState, setEditState] = React.useState<"ready" | "loading" | "denied">(editId ? "loading" : "ready");
+
+  // Edit mode is live (Google-Docs style): changes autosave, no save button.
+  // We save the FULL on-screen state (title + savable cards, possibly empty) so
+  // title-only edits and card deletions both persist faithfully.
+  const saveAbort = React.useRef<AbortController | null>(null);
+  async function autosaveNow(): Promise<boolean> {
+    const cards = rows.filter(hasContent);
+    saveAbort.current?.abort(); // cancel a still-in-flight older save (no out-of-order)
+    const ctrl = new AbortController();
+    saveAbort.current = ctrl;
+    try {
+      const res = await fetch(`/api/decks/${editId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, cards }),
+        signal: ctrl.signal,
+        keepalive: true,
+      });
+      if (res.ok) { setError(null); return true; }
+      const j = await res.json().catch(() => null);
+      setError(
+        j?.error === "content_flagged"
+          ? `Content moderation flagged this deck${Array.isArray(j.categories) && j.categories.length ? ` (${j.categories.join(", ")})` : ""}. Fix it to keep saving.`
+          : "Couldn't save your changes.",
+      );
+      return false;
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") return true; // superseded by a newer save
+      setError("Couldn't save your changes.");
+      return false;
+    }
+  }
+  // Key off the SAVABLE payload so structural no-ops (adding/removing a blank
+  // row) don't fire a save + moderation round-trip.
+  const status = useAutosave(autosaveNow, JSON.stringify({ title, cards: rows.filter(hasContent) }), {
+    enabled: Boolean(editId) && editState === "ready",
+  });
 
   // Edit mode: load the existing deck into the form.
   React.useEffect(() => {
@@ -96,14 +87,14 @@ export function DeckEditor({ editId }: { editId?: string } = {}) {
         return;
       }
       setTitle(j.deck.title);
-      setRows(
-        (j.deck.cards as Row[]).map((c) => ({
-          front: c.front ?? "",
-          back: c.back ?? "",
-          ...(c.frontImageId ? { frontImageId: c.frontImageId } : {}),
-          ...(c.backImageId ? { backImageId: c.backImageId } : {}),
-        })),
-      );
+      const loaded = (j.deck.cards as Row[]).map((c) => ({
+        front: c.front ?? "",
+        back: c.back ?? "",
+        ...(c.frontImageId ? { frontImageId: c.frontImageId } : {}),
+        ...(c.backImageId ? { backImageId: c.backImageId } : {}),
+      }));
+      // A fresh draft has no cards yet - show two blank rows to type into.
+      setRows(loaded.length ? loaded : [blank(), blank()]);
       setEditState("ready");
     })();
     return () => {
@@ -127,32 +118,33 @@ export function DeckEditor({ editId }: { editId?: string } = {}) {
     setPaste("");
   }
 
-  async function save(e: React.FormEvent) {
+  // Create: make an (empty) deck with its settings, then drop the user INTO
+  // its live editor to add cards.
+  async function create(e: React.FormEvent) {
     e.preventDefault();
-    const cards = rows.filter(hasContent);
-    if (cards.length === 0) {
-      setError("Add at least one card.");
+    if (!title.trim()) {
+      setError("Give your deck a name.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const res = editId
-        ? await fetch(`/api/decks/${editId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, cards }),
-          })
-        : await fetch("/api/decks", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, cards }),
-          });
+      const res = await fetch("/api/decks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, cards: [], visibility }),
+      });
       if (!res.ok) {
-        setError("Couldn't save the deck.");
+        const j = await res.json().catch(() => null);
+        setError(
+          j?.error === "content_flagged"
+            ? `Content moderation flagged this deck${Array.isArray(j.categories) && j.categories.length ? ` (${j.categories.join(", ")})` : ""}. Please revise it.`
+            : "Couldn't create the deck.",
+        );
         return;
       }
-      setSaved(await res.json());
+      const doc = await res.json();
+      router.push(`/decks/${doc.id}/edit`);
     } finally {
       setBusy(false);
     }
@@ -171,27 +163,38 @@ export function DeckEditor({ editId }: { editId?: string } = {}) {
     );
   }
 
-  if (saved) {
+  // CREATE: name it + choose visibility, then go inside to add cards.
+  if (!editId) {
     return (
-      <div className="upload-card">
-        <span className="pill">{editId ? "Saved" : "Created"}</span>
-        <h1 className="upload-h">{saved.title} - {saved.cardCount} cards</h1>
-        <p className="dash-sub">{editId ? "Your changes are live for everyone who can see this deck." : "Your deck is in the shared pool, ready for every member to study."}</p>
-        <div className="upload-actions">
-          <Link className="cta" href={`/decks/${saved.id}`}>Study it</Link>
-          <Link className="btn" href="/dashboard">Back to dashboard</Link>
+      <form className="upload-card" onSubmit={create}>
+        <h1 className="upload-h">New flashcard deck</h1>
+        <p className="dash-sub">Name it and choose who can see it. You&apos;ll add cards next.</p>
+        <label className="dash-field"><span>Deck title</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. ECG terms" maxLength={120} autoFocus /></label>
+        <label className="dash-field"><span>Who can see it</span>
+          <select value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
+            {VISIBILITY_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select></label>
+        {error && <p className="upload-error" role="alert">{error}</p>}
+        <div>
+          <button type="submit" className="cta" disabled={busy || !title.trim()}>
+            {busy ? "Creating..." : "Create & add cards"}
+          </button>
         </div>
-      </div>
+      </form>
     );
   }
 
   const count = rows.filter(hasContent).length;
   return (
-    <form className="upload-card" onSubmit={save}>
-      <h1 className="upload-h">{editId ? `Edit deck${title ? `: ${title}` : ""}` : "Create flashcards"}</h1>
+    <form className="upload-card" onSubmit={(e) => e.preventDefault()}>
+      <div className="editor-head">
+        <h1 className="upload-h">{`Edit deck${title ? `: ${title}` : ""}`}</h1>
+        <SaveStatusChip status={status} />
+      </div>
       <p className="dash-sub">
-        Build a deck by hand and add an image to any card, or paste from Quizlet / Anki / CSV. It
-        joins the shared pool - please follow the{" "}
+        Add cards by hand with an image on any face, or paste from Quizlet / Anki / CSV. Changes
+        save automatically - follow the{" "}
         <Link href="/guidelines" className="upload-inline-link">guidelines</Link>.
       </p>
 
@@ -236,11 +239,21 @@ export function DeckEditor({ editId }: { editId?: string } = {}) {
       </div>
 
       {error && <p className="upload-error" role="alert">{error}</p>}
-      <div>
-        <button type="submit" className="cta" disabled={busy || count === 0}>
-          {busy ? "Saving..." : editId ? `Save changes (${count} card${count === 1 ? "" : "s"})` : `Create deck (${count} card${count === 1 ? "" : "s"})`}
-        </button>
+      <div className="upload-actions">
+        <Link className="cta" href={`/decks/${editId}`}>Study it</Link>
+        <Link className="btn" href="/dashboard">Done</Link>
+        <SaveStatusChip status={status} />
+        <span className="dash-sub" style={{ marginLeft: "auto", fontSize: 13 }}>{count} card{count === 1 ? "" : "s"}</span>
       </div>
     </form>
+  );
+}
+
+/** Live autosave status shown in the editor (edit mode). */
+function SaveStatusChip({ status }: { status: SaveStatus }) {
+  return (
+    <span className={`save-status save-status-${status}`} aria-live="polite">
+      {status === "saving" ? "Saving..." : status === "error" ? "Save failed" : "All changes saved"}
+    </span>
   );
 }

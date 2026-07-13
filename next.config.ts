@@ -14,7 +14,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // pdfjs-dist ships a worker we resolve at runtime; keep it external from the
   // server bundle so the canvas/DOM-matrix shims don't get pulled server-side.
-  serverExternalPackages: ["pdfjs-dist"],
+  // unpdf + @napi-rs/canvas power server-side PDF moderation (text + per-page
+  // render) and must stay external too - @napi-rs/canvas is a native binary.
+  serverExternalPackages: ["pdfjs-dist", "unpdf", "@napi-rs/canvas"],
   async headers() {
     return [
       {

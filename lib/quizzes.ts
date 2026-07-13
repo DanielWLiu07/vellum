@@ -13,14 +13,73 @@
  * does not.
  */
 
+import { persistMap } from "./durable";
 import { getShare } from "./resource-share";
 import type { PersonShare, Visibility } from "./visibility";
 
+/**
+ * One answer choice. Carries text and/or an image (id from /api/images) - an
+ * image-only choice is valid (e.g. "pick the correct ECG"), like image-only
+ * prompts. Historically a choice was a bare string; `coerceChoice` upgrades old
+ * data on read so both shapes coexist safely.
+ */
+export interface QuizChoice {
+  text: string;
+  imageId?: string;
+}
+
 export interface QuizQuestion {
   prompt: string;
-  choices: string[];
+  choices: QuizChoice[];
   correctIndex: number;
+  /** Optional image shown with the prompt (id from /api/images). */
+  promptImageId?: string;
 }
+
+/**
+ * A question as CALLERS supply it (create/update). Choices may be bare strings
+ * (legacy / convenience) or full QuizChoice objects; cleanQuestion normalizes.
+ */
+export interface QuizQuestionInput {
+  prompt: string;
+  choices: (string | QuizChoice)[];
+  correctIndex: number;
+  promptImageId?: string;
+}
+
+/** Upgrade a raw choice (legacy string, object, or junk) to a QuizChoice. */
+export function coerceChoice(c: unknown): QuizChoice {
+  if (typeof c === "string") return { text: c };
+  if (c && typeof c === "object") {
+    const text = String((c as { text?: unknown }).text ?? "");
+    const rawImg = (c as { imageId?: unknown }).imageId;
+    const imageId = rawImg ? String(rawImg).slice(0, 64) : undefined;
+    return imageId ? { text, imageId } : { text };
+  }
+  return { text: "" };
+}
+
+/** A choice is usable if it has visible text OR an image. */
+function usableChoice(c: QuizChoice): boolean {
+  return Boolean(c.text.trim() || c.imageId);
+}
+
+/**
+ * Exam-mode settings. Presence of this object flips a quiz from a practice
+ * self-test into a timed, locked-down assessment: the answer key is withheld
+ * before AND after submitting, a countdown auto-submits, and the runner records
+ * advisory integrity flags (tab-switching, focus loss, copy). Integrity is
+ * demo-grade and client-reported - the real proctored engine lives in the HOSA
+ * member platform. Kept deliberately light here.
+ */
+export interface ExamSettings {
+  /** Countdown length in seconds; the runner auto-submits at zero. */
+  timeLimitSec: number;
+}
+
+/** Clamp bounds for a time limit: 30s to 4 hours. */
+export const EXAM_MIN_SEC = 30;
+export const EXAM_MAX_SEC = 4 * 60 * 60;
 
 export interface Quiz {
   id: string;
@@ -28,6 +87,8 @@ export interface Quiz {
   questions: QuizQuestion[];
   createdAt: number;
   owner: string;
+  /** When set, this quiz is a timed, locked-down exam (see ExamSettings). */
+  exam?: ExamSettings;
 }
 
 /** A quiz with its share state composed in (what routes and the UI consume). */
@@ -46,12 +107,15 @@ export interface QuizMeta {
   visibility: Visibility;
   chapter: string;
   people: PersonShare[];
+  /** True when this quiz is a timed, locked-down exam. */
+  isExam: boolean;
 }
 
 /** A question with the answer stripped, for sending to a quiz-taker. */
 export interface PublicQuestion {
   prompt: string;
-  choices: string[];
+  choices: QuizChoice[];
+  promptImageId?: string;
 }
 
 export const MAX_QUIZZES = 50;
@@ -61,6 +125,7 @@ const FIELD_MAX = 500;
 
 const g = globalThis as unknown as { __vitalsQuizzes?: Map<string, Quiz> };
 const store: Map<string, Quiz> = (g.__vitalsQuizzes ??= new Map());
+const { persist } = persistMap("quizzes", store);
 
 // The `owner` check also HEALS a record seeded by an older module version
 // without ownership (the globalThis map survives hot reloads / warm instances).
@@ -69,8 +134,8 @@ if (!store.get("sample-quiz")?.owner) {
     id: "sample-quiz",
     title: "HOSA - cardiology basics",
     questions: [
-      { prompt: "A resting heart rate over 100 bpm is called:", choices: ["Bradycardia", "Tachycardia", "Systole", "Hypoxia"], correctIndex: 1 },
-      { prompt: "Which chamber pumps oxygenated blood to the body?", choices: ["Right atrium", "Right ventricle", "Left ventricle", "Left atrium"], correctIndex: 2 },
+      { prompt: "A resting heart rate over 100 bpm is called:", choices: ["Bradycardia", "Tachycardia", "Systole", "Hypoxia"].map((t) => ({ text: t })), correctIndex: 1 },
+      { prompt: "Which chamber pumps oxygenated blood to the body?", choices: ["Right atrium", "Right ventricle", "Left ventricle", "Left atrium"].map((t) => ({ text: t })), correctIndex: 2 },
     ],
     createdAt: 0,
     owner: "system",
@@ -79,11 +144,28 @@ if (!store.get("sample-quiz")?.owner) {
 
 const clamp = (s: string, n: number) => s.trim().slice(0, n);
 
-/** Compose the share sidecar into a quiz. Quizzes default to the shared pool. */
+/** Normalize raw exam settings; null means "not an exam" (practice mode). */
+function cleanExam(raw: unknown): ExamSettings | null {
+  if (!raw || typeof raw !== "object") return null;
+  const sec = (raw as { timeLimitSec?: unknown }).timeLimitSec;
+  if (!Number.isFinite(sec)) return null;
+  const clamped = Math.min(EXAM_MAX_SEC, Math.max(EXAM_MIN_SEC, Math.round(sec as number)));
+  return { timeLimitSec: clamped };
+}
+
+/** True when a quiz is a timed, locked-down exam. */
+export function isExam(q: Pick<Quiz, "exam">): boolean {
+  return !!q.exam;
+}
+
+/** Compose the share sidecar into a quiz. Quizzes default to the shared pool.
+ * Choices are coerced so legacy string-choice data reaches the editor as the
+ * current QuizChoice shape. */
 function withScope(q: Quiz): ScopedQuiz {
   const share = getShare(q.id);
   return {
     ...q,
+    questions: q.questions.map((question) => ({ ...question, choices: question.choices.map(coerceChoice) })),
     visibility: share?.visibility ?? "public",
     chapter: share?.chapter ?? "",
     people: share?.people ?? [],
@@ -91,26 +173,32 @@ function withScope(q: Quiz): ScopedQuiz {
 }
 
 /** Validate + normalize a raw question; returns null if it isn't usable. */
-function cleanQuestion(q: QuizQuestion): QuizQuestion | null {
+function cleanQuestion(q: QuizQuestionInput): QuizQuestion | null {
   const prompt = clamp(q.prompt ?? "", FIELD_MAX);
-  const rawChoices = (Array.isArray(q.choices) ? q.choices : []).map((c) => clamp(String(c ?? ""), FIELD_MAX));
-  const choices = rawChoices.filter(Boolean);
-  if (!prompt || choices.length < 2) return null;
+  const promptImageId = q.promptImageId ? String(q.promptImageId).slice(0, 64) : undefined;
+  const rawChoices = (Array.isArray(q.choices) ? q.choices : []).map((c) => {
+    const choice = coerceChoice(c);
+    return { text: clamp(choice.text, FIELD_MAX), ...(choice.imageId ? { imageId: choice.imageId } : {}) };
+  });
+  const choices = rawChoices.filter(usableChoice);
+  // A question needs at least two choices and either prompt text or an image
+  // (an image-only prompt is fine - e.g. "identify this rhythm strip").
+  if ((!prompt && !promptImageId) || choices.length < 2) return null;
   // correctIndex points into the UNFILTERED list the client sent. Dropping
-  // blank choices shifts positions, so remap it by counting the surviving
-  // choices before it — otherwise deleting a blank ahead of the right answer
-  // silently flips the key to a different choice. If the marked choice was
-  // itself blank (dropped), fall back to 0.
+  // empty choices shifts positions, so remap it by counting the surviving
+  // choices before it — otherwise deleting an empty one ahead of the right
+  // answer silently flips the key. If the marked choice was itself dropped
+  // (blank, no image), fall back to 0.
   let correctIndex = 0;
   if (
     Number.isInteger(q.correctIndex) &&
     q.correctIndex >= 0 &&
     q.correctIndex < rawChoices.length &&
-    rawChoices[q.correctIndex]
+    usableChoice(rawChoices[q.correctIndex])
   ) {
-    correctIndex = rawChoices.slice(0, q.correctIndex).filter(Boolean).length;
+    correctIndex = rawChoices.slice(0, q.correctIndex).filter(usableChoice).length;
   }
-  return { prompt, choices, correctIndex };
+  return promptImageId ? { prompt, choices, correctIndex, promptImageId } : { prompt, choices, correctIndex };
 }
 
 export function listQuizzes(): QuizMeta[] {
@@ -127,6 +215,7 @@ export function listQuizzes(): QuizMeta[] {
         visibility: s.visibility,
         chapter: s.chapter,
         people: s.people,
+        isExam: isExam(s),
       };
     });
 }
@@ -136,11 +225,46 @@ export function getQuiz(id: string): ScopedQuiz | undefined {
   return q ? withScope(q) : undefined;
 }
 
-/** The quiz as a taker sees it: questions + choices, no correct answers. */
-export function getQuizForTaker(id: string): { id: string; title: string; questions: PublicQuestion[] } | undefined {
+/**
+ * The quiz as a taker sees it: questions + choices, no correct answers. Exam
+ * settings ARE included (the runner needs the time limit to start the clock and
+ * enable lockdown) - they carry no answer information.
+ */
+export function getQuizForTaker(
+  id: string,
+): { id: string; title: string; questions: PublicQuestion[]; exam?: ExamSettings } | undefined {
   const q = store.get(id);
   if (!q) return undefined;
-  return { id: q.id, title: q.title, questions: q.questions.map((x) => ({ prompt: x.prompt, choices: x.choices })) };
+  return {
+    id: q.id,
+    title: q.title,
+    questions: q.questions.map(toPublicQuestion),
+    ...(q.exam ? { exam: q.exam } : {}),
+  };
+}
+
+/** Strip the answer, keep the prompt/choices/image. Coerces legacy string choices. */
+function toPublicQuestion(x: QuizQuestion): PublicQuestion {
+  const choices = x.choices.map(coerceChoice);
+  return x.promptImageId
+    ? { prompt: x.prompt, choices, promptImageId: x.promptImageId }
+    : { prompt: x.prompt, choices };
+}
+
+/**
+ * The answer key for a quiz: public questions plus the correct index of each.
+ * Powers the optional "reveal answer" study mode and the answer sheet. Callers
+ * gate this on canView (these are study quizzes, not graded exams).
+ */
+export function getQuizAnswerKey(id: string): { id: string; title: string; questions: PublicQuestion[]; correctIndexes: number[] } | undefined {
+  const q = store.get(id);
+  if (!q) return undefined;
+  return {
+    id: q.id,
+    title: q.title,
+    questions: q.questions.map(toPublicQuestion),
+    correctIndexes: q.questions.map((x) => x.correctIndex),
+  };
 }
 
 /** Score a set of answers (one choice index per question) against the key. */
@@ -156,14 +280,16 @@ export function gradeQuiz(
   return { score: correct.filter(Boolean).length, total: q.questions.length, correct, correctIndexes };
 }
 
-export function createQuiz(title: string, questions: QuizQuestion[], owner: string): Quiz {
+export function createQuiz(title: string, questions: QuizQuestionInput[], owner: string, exam?: unknown): Quiz {
   const clean = questions.map(cleanQuestion).filter((q): q is QuizQuestion => q !== null).slice(0, MAX_QUESTIONS);
+  const examSettings = cleanExam(exam);
   const quiz: Quiz = {
     id: `q_${crypto.randomUUID()}`,
     title: clamp(title, TITLE_MAX) || "Untitled quiz",
     questions: clean,
     createdAt: Date.now(),
     owner,
+    ...(examSettings ? { exam: examSettings } : {}),
   };
   store.set(quiz.id, quiz);
   // Cap the store, evicting only the NEW owner's own oldest quizzes (never the
@@ -176,23 +302,31 @@ export function createQuiz(title: string, questions: QuizQuestion[], owner: stri
     const old = mine.shift();
     if (old) store.delete(old.id);
   }
+  persist();
   return quiz;
 }
 
-/** Replace a quiz's title and/or questions in place. The sample is immutable. */
+/** Replace a quiz's title, questions, and/or exam settings in place. The sample
+ * is immutable. Pass `exam: null` to turn exam mode OFF; omit to leave it. */
 export function updateQuiz(
   id: string,
-  patch: { title?: string; questions?: QuizQuestion[] },
+  patch: { title?: string; questions?: QuizQuestionInput[]; exam?: unknown },
 ): Quiz | undefined {
   if (id === "sample-quiz") return undefined;
   const quiz = store.get(id);
   if (!quiz) return undefined;
   if (patch.title !== undefined) quiz.title = clamp(patch.title, TITLE_MAX) || "Untitled quiz";
+  // A live-editor quiz may be emptied (draft you're still filling in); the
+  // editor autosaves what's on screen, so 0 questions is a valid state.
   if (patch.questions !== undefined) {
-    const clean = patch.questions.map(cleanQuestion).filter((q): q is QuizQuestion => q !== null).slice(0, MAX_QUESTIONS);
-    if (clean.length === 0) return undefined; // don't let an update empty a quiz
-    quiz.questions = clean;
+    quiz.questions = patch.questions.map(cleanQuestion).filter((q): q is QuizQuestion => q !== null).slice(0, MAX_QUESTIONS);
   }
+  if (patch.exam !== undefined) {
+    const examSettings = cleanExam(patch.exam);
+    if (examSettings) quiz.exam = examSettings;
+    else delete quiz.exam;
+  }
+  persist();
   return quiz;
 }
 
@@ -207,10 +341,13 @@ export function duplicateQuiz(id: string, owner: string): Quiz | undefined {
     `Copy of ${src.title}`,
     src.questions.map((q) => ({ ...q, choices: [...q.choices] })),
     owner,
+    src.exam,
   );
 }
 
 export function deleteQuiz(id: string): boolean {
   if (id === "sample-quiz") return false;
-  return store.delete(id);
+  const ok = store.delete(id);
+  if (ok) persist();
+  return ok;
 }

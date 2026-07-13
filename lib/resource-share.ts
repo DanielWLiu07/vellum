@@ -19,8 +19,11 @@ export interface ShareState {
   name?: string;
 }
 
+import { persistMap } from "./durable";
+
 const g = globalThis as unknown as { __vitalsShare?: Map<string, ShareState> };
 const store: Map<string, ShareState> = (g.__vitalsShare ??= new Map());
+const { persist } = persistMap("resource-share", store);
 
 export function getShare(docId: string): ShareState | undefined {
   return store.get(docId);
@@ -50,10 +53,11 @@ export function setShare(
         : {}),
   };
   store.set(docId, next);
+  persist();
   return next;
 }
 
 /** Drop a resource's share state (call when it's deleted, to avoid orphans). */
 export function deleteShare(docId: string): void {
-  store.delete(docId);
+  if (store.delete(docId)) persist();
 }

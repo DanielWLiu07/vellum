@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # npm dependencies. Minor/patch bumps are grouped into one PR to cut noise;
+  # majors come as their own PRs so you review breaking changes deliberately.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Keep the GitHub Actions themselves current - Dependabot bumps the pinned
+  # commit SHAs in the workflows (and updates the version comment), so pinning
+  # for security doesn't mean going stale.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

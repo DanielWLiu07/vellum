@@ -5,9 +5,16 @@ import * as React from "react";
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
 export function UploadForm() {
   const [file, setFile] = React.useState<File | null>(null);
   const [name, setName] = React.useState("");
+  const [event, setEvent] = React.useState("");
+  const [noPreview, setNoPreview] = React.useState(false);
   const [watermark, setWatermark] = React.useState("");
   const [download, setDownload] = React.useState(false);
   const [print, setPrint] = React.useState(false);
@@ -22,8 +29,30 @@ export function UploadForm() {
   const [ack, setAck] = React.useState(false);
   const [thumbnailId, setThumbnailId] = React.useState<string | undefined>();
   const [thumbBusy, setThumbBusy] = React.useState(false);
+  const [preview, setPreview] = React.useState<string | null>(null);
+  const [docUrl, setDocUrl] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const thumbRef = React.useRef<HTMLInputElement>(null);
+
+  // Live preview of the chosen file (image OR pdf) - so you see the resource as
+  // you upload it. `preview` also feeds the small thumb for images. Revoke the
+  // object URL on change so we don't leak.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  React.useEffect(() => {
+    if (!file) { setPreview(null); setDocUrl(null); return; }
+    const isImg = file.type.startsWith("image/");
+    const isPdf = file.type === "application/pdf";
+    if (isImg || isPdf) {
+      const url = URL.createObjectURL(file);
+      if (isImg) setPreview(url);
+      else setPreview(null);
+      setDocUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setPreview(null);
+    setDocUrl(null);
+  }, [file]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   async function pickThumb(f: File | null | undefined) {
     if (!f) return;
@@ -58,6 +87,8 @@ export function UploadForm() {
       const fd = new FormData();
       fd.set("file", file);
       if (name.trim()) fd.set("name", name.trim());
+      if (event.trim()) fd.set("event", event.trim());
+      if (noPreview) fd.set("noPreview", "1");
       if (thumbnailId) fd.set("thumbnailId", thumbnailId);
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       if (!res.ok) {
@@ -66,6 +97,12 @@ export function UploadForm() {
           j.error === "too_large" ? "File too large (25 MB max)." :
           j.error === "not_pdf" ? "That isn't a valid PDF." :
           j.error === "rate_limited" ? "Too many uploads - try again shortly." :
+          j.error === "content_flagged"
+            ? `Content moderation flagged this title${Array.isArray(j.categories) && j.categories.length ? ` (${j.categories.join(", ")})` : ""}. Please rename it.`
+            :
+          j.error === "copyright_flagged"
+            ? `This looks like copyrighted material${Array.isArray(j.signals) && j.signals.length ? ` (${j.signals.join(", ")})` : ""} and can't be uploaded. Only share resources you have the right to distribute.`
+            :
           "Upload failed.",
         );
         return;
@@ -90,7 +127,7 @@ export function UploadForm() {
   if (result) {
     return (
       <div className="upload-card">
-        <span className="pill">Uploaded</span>
+        <span className="upload-done-badge" aria-hidden="true" />
         <h1 className="upload-h">{result.name} is in the shared pool</h1>
         <p className="dash-sub">Every member can now find it under Resources. Generate a secure, watermarked link to share it directly:</p>
         <div className="upload-actions">
@@ -118,25 +155,61 @@ export function UploadForm() {
         <Link href="/guidelines" className="upload-inline-link">content guidelines</Link>.
       </p>
 
-      <div
-        className={`drop-zone${drag ? " is-drag" : ""}${file ? " has-file" : ""}`}
-        onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => { e.preventDefault(); setDrag(false); choose(e.dataTransfer.files?.[0]); }}
-        onClick={() => fileRef.current?.click()}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") fileRef.current?.click(); }}
-        role="button"
-        tabIndex={0}
-        aria-label="Choose a PDF to upload"
-      >
-        {file
-          ? <p><strong>{file.name}</strong> · {(file.size / 1024).toFixed(0)} KB</p>
-          : <p>Drag a PDF or image here, or <span className="upload-inline-link">browse</span> - PDF, PNG, JPG, GIF, WEBP · 25 MB max</p>}
-        <input ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => choose(e.target.files?.[0])} />
-      </div>
+      {file ? (
+        <div className="file-card">
+          <div className="file-thumb">
+            {preview ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={preview} alt="" />
+            ) : (
+              <span className="file-ext">{(file.name.split(".").pop() || "file").toUpperCase().slice(0, 4)}</span>
+            )}
+          </div>
+          <div className="file-meta">
+            <p className="file-name">{file.name}</p>
+            <p className="file-size">{formatSize(file.size)}</p>
+            <button type="button" className="file-replace" onClick={() => fileRef.current?.click()}>Replace file</button>
+          </div>
+          <button type="button" className="file-remove" aria-label="Remove file" onClick={() => { setFile(null); setError(null); }} />
+        </div>
+      ) : null}
+
+      {docUrl && (
+        <div className="upload-preview">
+          <p className="upload-preview-label">Preview</p>
+          {file?.type === "application/pdf" ? (
+            <iframe className="upload-preview-frame" src={docUrl} title="Document preview" />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="upload-preview-img" src={docUrl} alt="Selected file preview" />
+          )}
+        </div>
+      )}
+
+      {!file && (
+        <div
+          className={`drop-zone${drag ? " is-drag" : ""}`}
+          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); choose(e.dataTransfer.files?.[0]); }}
+          onClick={() => fileRef.current?.click()}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") fileRef.current?.click(); }}
+          role="button"
+          tabIndex={0}
+          aria-label="Choose a PDF or image to upload"
+        >
+          <span className="drop-icon" aria-hidden="true" />
+          <p className="drop-title">Drag a file here, or <span className="upload-inline-link">browse</span></p>
+          <p className="drop-meta">PDF, PNG, JPG, GIF, WEBP - up to 25 MB</p>
+        </div>
+      )}
+      <input ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => choose(e.target.files?.[0])} />
 
       <label className="dash-field"><span>Display name</span>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ECG interpretation guide" /></label>
+
+      <label className="dash-field"><span>Event (optional)</span>
+        <input value={event} onChange={(e) => setEvent(e.target.value)} placeholder="e.g. Medical Terminology" /></label>
 
       <div className="dash-field">
         <span>Cover image (optional)</span>
@@ -153,6 +226,12 @@ export function UploadForm() {
             </button>
             <input ref={thumbRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => pickThumb(e.target.files?.[0])} />
           </div>
+        )}
+        {!thumbnailId && (
+          <label className="upload-inline-check">
+            <input type="checkbox" checked={noPreview} onChange={(e) => setNoPreview(e.target.checked)} />
+            <span>Use a plain cover instead of a page preview</span>
+          </label>
         )}
       </div>
 
@@ -188,9 +267,7 @@ export function UploadForm() {
       </label>
 
       {error && <p className="upload-error" role="alert">{error}</p>}
-      <div>
-        <button type="submit" className="cta" disabled={busy || !file || !ack}>{busy ? "Uploading..." : "Upload to shared pool"}</button>
-      </div>
+      <button type="submit" className="cta block" disabled={busy || !file || !ack}>{busy ? "Uploading..." : "Upload to shared pool"}</button>
     </form>
   );
 }

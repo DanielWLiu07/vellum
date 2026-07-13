@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { copyDoc, getDoc } from "@/lib/store";
-import { DEMO_VIEWER, canView } from "@/lib/visibility";
+import { getViewer } from "@/lib/profile";
+import { canView } from "@/lib/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +15,7 @@ export const dynamic = "force-dynamic";
 // this is also the editing story for immutable resources (bundled samples,
 // other people's docs): copy first, then the copy is fully yours.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  await enterRequest(req);
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
   }
@@ -26,11 +29,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const doc = await getDoc(id);
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (!canView(doc, DEMO_VIEWER)) return NextResponse.json({ error: "not_found" }, { status: 404 }); // no existence leak
+  if (!canView(doc, getViewer())) return NextResponse.json({ error: "not_found" }, { status: 404 }); // no existence leak
 
-  const copy = await copyDoc(id, DEMO_VIEWER.owner, DEMO_VIEWER.chapter);
+  const copy = await copyDoc(id, getViewer().owner, getViewer().chapter);
   if (!copy) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  recordAudit("document.copy", copy.name, clientIp(req));
+  recordAudit("document.copy", copy.name);
   return NextResponse.json(
     { id: copy.id, name: copy.name, sizeBytes: copy.sizeBytes },
     { headers: { "Cache-Control": "no-store" } },

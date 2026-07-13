@@ -11,6 +11,8 @@ import {
   MAX_UPLOADS,
   cleanName,
   newUploadId,
+  type BlobStore,
+  type StoredBlob,
   type StorageBackend,
   type UploadMeta,
 } from "./types";
@@ -79,3 +81,39 @@ export const memoryBackend: StorageBackend = {
     return store.delete(id);
   },
 };
+
+/**
+ * Insert a fully-specified record directly (demo seeding only - lets the seed
+ * control id/owner/date, which put() would otherwise assign). No-op safety: the
+ * caller decides when this runs.
+ */
+export function __seedUpload(rec: UploadMeta & { bytes: Uint8Array }): void {
+  store.set(rec.id, { ...rec });
+}
+
+/**
+ * In-memory BlobStore - the local/demo fallback for the durable object-storage
+ * blob store. A capped ring buffer (Map preserves insertion order), so it can't
+ * grow unbounded across a long-lived warm instance. Lost on restart, like the
+ * upload memory backend; set S3/R2 env vars for durability.
+ */
+export function makeMemoryBlobStore(globalKey: string, cap: number): BlobStore {
+  const gb = globalThis as unknown as Record<string, Map<string, StoredBlob> | undefined>;
+  const blobs: Map<string, StoredBlob> = (gb[globalKey] ??= new Map());
+  return {
+    async get(id) {
+      return blobs.get(id);
+    },
+    async put(id, bytes, contentType) {
+      blobs.set(id, { bytes, contentType });
+      while (blobs.size > cap) {
+        const oldest = blobs.keys().next().value;
+        if (oldest === undefined) break;
+        blobs.delete(oldest);
+      }
+    },
+    async remove(id) {
+      return blobs.delete(id);
+    },
+  };
+}

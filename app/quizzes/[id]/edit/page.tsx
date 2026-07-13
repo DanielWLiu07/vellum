@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { QuizEditor } from "@/components/quiz-editor";
+import { ProfileBadge } from "@/components/profile-badge";
 
 export const metadata: Metadata = {
   title: "HOSA Vitals - edit quiz",
@@ -21,6 +22,7 @@ export default async function QuizEditPage({ params }: { params: Promise<{ id: s
         <span className="dash-topnav-links">
           <Link href="/dashboard" className="dash-back">Dashboard</Link>
           <Link href={`/quizzes/${id}`} className="dash-back">Take this quiz</Link>
+          <ProfileBadge />
         </span>
       </nav>
       {enabled ? (

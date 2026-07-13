@@ -9,6 +9,7 @@
  */
 
 import { getShare } from "./resource-share";
+import { persistMap } from "./durable";
 import { type Card, parseCards } from "./parse-cards";
 import type { PersonShare, Visibility } from "./visibility";
 
@@ -48,6 +49,7 @@ const FIELD_MAX = 2000;
 
 const g = globalThis as unknown as { __vellumDecks?: Map<string, Deck> };
 const store: Map<string, Deck> = (g.__vellumDecks ??= new Map());
+const { persist } = persistMap("decks", store);
 
 // Seed the sample deck once. The `owner` check also HEALS a record seeded by
 // an older module version without ownership — the globalThis map survives hot
@@ -133,6 +135,7 @@ export function createDeck(title: string, cards: Card[], owner: string): Deck {
     const old = mine.shift();
     if (old) store.delete(old.id);
   }
+  persist();
   return deck;
 }
 
@@ -142,11 +145,10 @@ export function updateDeck(id: string, patch: { title?: string; cards?: Card[] }
   const deck = store.get(id);
   if (!deck) return undefined;
   if (patch.title !== undefined) deck.title = clamp(patch.title, TITLE_MAX) || "Untitled deck";
-  if (patch.cards !== undefined) {
-    const cards = cleanCards(patch.cards);
-    if (cards.length === 0) return undefined; // don't let an update empty a deck
-    deck.cards = cards;
-  }
+  // A live-editor deck may be emptied (it's a draft you're still filling in);
+  // the editor autosaves whatever is on screen, so 0 cards is a valid state.
+  if (patch.cards !== undefined) deck.cards = cleanCards(patch.cards);
+  persist();
   return deck;
 }
 
@@ -162,5 +164,7 @@ export function duplicateDeck(id: string, owner: string): Deck | undefined {
 
 export function deleteDeck(id: string): boolean {
   if (id === "sample-deck") return false; // sample is immutable
-  return store.delete(id);
+  const ok = store.delete(id);
+  if (ok) persist();
+  return ok;
 }

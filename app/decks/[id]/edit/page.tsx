@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { DeckEditor } from "@/components/deck-editor";
+import { ProfileBadge } from "@/components/profile-badge";
 
 export const metadata: Metadata = {
   title: "HOSA Vitals - edit deck",
@@ -21,6 +22,7 @@ export default async function DeckEditPage({ params }: { params: Promise<{ id: s
         <span className="dash-topnav-links">
           <Link href="/dashboard" className="dash-back">Dashboard</Link>
           <Link href={`/decks/${id}`} className="dash-back">Study this deck</Link>
+          <ProfileBadge />
         </span>
       </nav>
       {enabled ? (

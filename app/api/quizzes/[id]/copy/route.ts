@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
 import { duplicateQuiz, getQuiz } from "@/lib/quizzes";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { setShare } from "@/lib/resource-share";
-import { DEMO_VIEWER, canView } from "@/lib/visibility";
+import { getViewer } from "@/lib/profile";
+import { canView } from "@/lib/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +15,7 @@ export const dynamic = "force-dynamic";
 // (the copy includes the answer key — the caller now owns the content, the
 // same way copying a Google Form copies its key). The copy starts private.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  await enterRequest(req);
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
   }
@@ -26,12 +29,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const quiz = getQuiz(id);
   if (!quiz) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (!canView(quiz, DEMO_VIEWER)) return NextResponse.json({ error: "not_found" }, { status: 404 }); // no existence leak
+  if (!canView(quiz, getViewer())) return NextResponse.json({ error: "not_found" }, { status: 404 }); // no existence leak
 
-  const copy = duplicateQuiz(id, DEMO_VIEWER.owner);
+  const copy = duplicateQuiz(id, getViewer().owner);
   if (!copy) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  setShare(copy.id, { visibility: "private", chapter: DEMO_VIEWER.chapter, people: [] });
-  recordAudit("quiz.copy", copy.title, clientIp(req));
+  setShare(copy.id, { visibility: "private", chapter: getViewer().chapter, people: [] });
+  recordAudit("quiz.copy", copy.title);
   return NextResponse.json(
     { id: copy.id, title: copy.title, questionCount: copy.questions.length },
     { headers: { "Cache-Control": "no-store" } },

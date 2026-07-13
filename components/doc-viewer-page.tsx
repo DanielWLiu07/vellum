@@ -10,6 +10,8 @@
 // title, ownership/visibility metadata, and friendly error states.
 
 import Link from "next/link";
+
+import { Comments } from "./comments";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -186,9 +188,14 @@ export function DocViewerPage({
         </div>
       )}
       {state.kind === "ready" && (
-        <div className="viewer-page-frame">
-          <PdfViewer key={state.token} token={state.token} initialMode={initialMode} />
-        </div>
+        <>
+          <div className="viewer-page-frame">
+            <PdfViewer key={state.token} token={state.token} initialMode={initialMode} />
+          </div>
+          <div className="viewer-page-comments">
+            <Comments type="doc" target={id} />
+          </div>
+        </>
       )}
     </main>
   );

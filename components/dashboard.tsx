@@ -5,13 +5,25 @@ import Link from "next/link";
 import { OFFICIAL_GUIDELINES } from "@/lib/official-guidelines";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { DOC_SORTS, matchesQuery, sortDocs, type DocSort } from "@/lib/resource-list";
+
 import { ActivityLog } from "./activity-log";
+import { CardThumb } from "./card-thumb";
+import { FavoriteButton } from "./favorite-button";
+import { useFavorites } from "./favorites-context";
 import { FlashcardsView } from "./flashcards-view";
+import { MoveToFolder } from "./move-to-folder";
+import { ShareDialog, type ShareTarget } from "./share-dialog";
+import { useDecks } from "./use-decks";
+import { useFolders } from "./use-folders";
 import { QuizzesView } from "./quizzes-view";
-import { ShareDialog } from "./share-dialog";
+import { SkillsView } from "./buzzer-game";
+import { FeedbackView } from "./feedback-view";
+import { ModulesLobby } from "./modules-lobby";
 import { useModal } from "./use-modal";
 import {
   DEMO_VIEWER,
+  canEdit,
   canManageSharing,
   filterScoped,
   type FilterMode,
@@ -41,46 +53,64 @@ interface Doc {
   owner: string;
   people: PersonShare[];
   thumbnailId?: string;
+  contentType?: string;
+  event?: string;
+  noPreview?: boolean;
+  official?: boolean;
+  folderId?: string;
+}
+
+/**
+ * A unified "resource" - either an uploaded document or a flashcard deck. Both
+ * share visibility/owner/people so they filter, search, sort, and favorite the
+ * same way in the Resources view. Doc-only fields (event/folder/official/
+ * preview) are absent on decks; deck-only `cardCount` is absent on docs.
+ */
+interface ResItem {
+  kind: "doc" | "deck";
+  id: string;
+  name: string; // doc name, or deck title normalized for search/sort
+  owner: string;
+  visibility: Visibility;
+  chapter: string;
+  people: PersonShare[];
+  sizeBytes: number; // 0 for decks
+  uploadedAt: number; // deck createdAt normalized for sort
+  // doc-only
+  event?: string;
+  folderId?: string;
+  official?: boolean;
+  bundled?: boolean;
+  thumbnailId?: string;
+  contentType?: string;
+  noPreview?: boolean;
+  // deck-only
+  cardCount?: number;
+}
+
+/** Whether a card can show an auto page-preview (PDF or image, not opted out). */
+function isPreviewable(d: { contentType?: string; noPreview?: boolean }): boolean {
+  return !d.noPreview && (d.contentType === "application/pdf" || (d.contentType?.startsWith("image/") ?? false));
 }
 
 const VIS_LABEL: Record<Visibility, string> = { public: "Public", chapter: "Chapter", private: "Private" };
 
-const FILTERS: { id: FilterMode; label: string }[] = [
+type ResourceMode = FilterMode | "saved";
+const FILTERS: { id: ResourceMode; label: string }[] = [
   { id: "accessible", label: "All resources" },
   { id: "mine", label: "My resources" },
+  { id: "saved", label: "Saved" },
 ];
 
-type DocSort = "newest" | "oldest" | "name-az" | "name-za" | "largest" | "smallest";
-
-const SORTS: { id: DocSort; label: string }[] = [
-  { id: "newest", label: "Newest first" },
-  { id: "oldest", label: "Oldest first" },
-  { id: "name-az", label: "Name A-Z" },
-  { id: "name-za", label: "Name Z-A" },
-  { id: "largest", label: "Largest first" },
-  { id: "smallest", label: "Smallest first" },
-];
-
-function sortDocs(docs: Doc[], sort: DocSort): Doc[] {
-  const out = [...docs];
-  switch (sort) {
-    case "newest": out.sort((a, b) => b.uploadedAt - a.uploadedAt); break;
-    case "oldest": out.sort((a, b) => a.uploadedAt - b.uploadedAt); break;
-    // numeric:true so "Week 2" sorts before "Week 10"; base sensitivity
-    // keeps case/accents from splitting otherwise-equal names.
-    case "name-az": out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })); break;
-    case "name-za": out.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: "base" })); break;
-    case "largest": out.sort((a, b) => b.sizeBytes - a.sizeBytes); break;
-    case "smallest": out.sort((a, b) => a.sizeBytes - b.sizeBytes); break;
-  }
-  return out;
-}
-
-/** Search + sort strip shared by every document grid. */
-function DocToolbar({ q, setQ, sort, setSort, shown, total }: {
+/** Search + sort strip shared by every document grid. Optionally shows an
+ * event filter when a non-empty `events` list is provided. */
+function DocToolbar({ q, setQ, sort, setSort, shown, total, events, event, setEvent }: {
   q: string; setQ: (v: string) => void;
   sort: DocSort; setSort: (v: DocSort) => void;
   shown: number; total: number;
+  events?: string[];
+  event?: string;
+  setEvent?: (v: string) => void;
 }) {
   return (
     <div className="resource-toolbar">
@@ -89,16 +119,29 @@ function DocToolbar({ q, setQ, sort, setSort, shown, total }: {
         type="search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search by name or uploader"
-        aria-label="Search documents"
+        placeholder="Search by name, member, or event"
+        aria-label="Search resources"
       />
+      {events && events.length > 0 && setEvent && (
+        <select
+          className="sort-select"
+          value={event ?? ""}
+          onChange={(e) => setEvent(e.target.value)}
+          aria-label="Filter by event"
+        >
+          <option value="">All events</option>
+          {events.map((ev) => (
+            <option key={ev} value={ev}>{ev}</option>
+          ))}
+        </select>
+      )}
       <select
         className="sort-select"
         value={sort}
         onChange={(e) => setSort(e.target.value as DocSort)}
-        aria-label="Sort documents"
+        aria-label="Sort resources"
       >
-        {SORTS.map((o) => (
+        {DOC_SORTS.map((o) => (
           <option key={o.id} value={o.id}>{o.label}</option>
         ))}
       </select>
@@ -144,6 +187,7 @@ type NavItem = { id: string; label: string; soon?: boolean; href?: string };
 // not an external page, so it keeps the dashboard chrome.
 const COMMON_LINKS: NavItem[] = [
   { id: "guidelines", label: "Guidelines" },
+  { id: "feedback", label: "Feedback" },
   { id: "upload", label: "Upload", href: "/upload" },
 ];
 
@@ -152,18 +196,19 @@ const NAV: Record<Role, NavItem[]> = {
   student: [
     { id: "home", label: "Home" },
     { id: "assignments", label: "My assignments" },
+    { id: "modules", label: "Modules" },
     { id: "resources", label: "Resources" },
-    { id: "flashcards", label: "Flashcards" },
     { id: "quizzes", label: "Quizzes" },
-    { id: "skills", label: "General skills", soon: true },
+    { id: "skills", label: "General skills" },
     ...COMMON_LINKS,
   ],
   trainer: [
     { id: "lessons", label: "My lessons" },
     { id: "group", label: "My group" },
+    { id: "modules", label: "Modules" },
     { id: "flashcards", label: "Flashcards" },
     { id: "quizzes", label: "Quizzes" },
-    { id: "skills", label: "General skills", soon: true },
+    { id: "skills", label: "General skills" },
     ...COMMON_LINKS,
   ],
   // An advisor is also a student (some students are advisors), so they get the
@@ -171,17 +216,18 @@ const NAV: Record<Role, NavItem[]> = {
   advisor: [
     { id: "home", label: "Home" },
     { id: "assignments", label: "My assignments" },
+    { id: "modules", label: "Modules" },
     { id: "resources", label: "Resources" },
-    { id: "flashcards", label: "Flashcards" },
     { id: "quizzes", label: "Quizzes" },
     { id: "trainers", label: "My trainers" },
     { id: "lessons", label: "Chapter lessons" },
-    { id: "skills", label: "General skills", soon: true },
+    { id: "skills", label: "General skills" },
     ...COMMON_LINKS,
   ],
   admin: [
     { id: "overview", label: "Overview" },
     { id: "users", label: "Users & roles" },
+    { id: "modules", label: "Modules" },
     { id: "content", label: "All content" },
     { id: "access", label: "Roles & access" },
     { id: "activity", label: "Activity log" },
@@ -193,7 +239,7 @@ const NAV: Record<Role, NavItem[]> = {
 const ADMIN_SETTINGS = [
   { label: "Allow student uploads", desc: "Let students submit their own documents", on: false },
   { label: "Require watermark on shares", desc: "Force a per-user watermark on every shared link", on: true },
-  { label: "Enable General skills (round 2)", desc: "Buzzer game, skills in front of AI, and more", on: false },
+  { label: "Enable General skills (round 2)", desc: "Buzzer game live; skills in front of AI and more coming", on: true },
 ];
 
 function ComingSoon({ title, note }: { title: string; note?: string }) {
@@ -363,12 +409,17 @@ export function Dashboard() {
         <main className="dash-main">
           <p className="dash-sub" style={{ marginBottom: 20 }}>{active.blurb}</p>
           {section === "guidelines" && <GuidelinesView />}
-          {section !== "guidelines" && role === "student" && <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} />}
-          {section !== "guidelines" && role === "trainer" && <TrainerView section={section} {...shared} onAssign={setAssignTo} />}
-          {section !== "guidelines" && role === "advisor" && (STUDENT_SECTIONS.has(section)
-            ? <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} />
+          {/* Modules: the HOSA-authored official content, its own tab. Rendered
+              here (all handlers in scope) so every role shares one view; admins
+              get create/organize powers. */}
+          {section === "modules" && <ModulesLobby admin={role === "admin"} />}
+          {section === "feedback" && <FeedbackView admin={role === "admin"} />}
+          {!["guidelines", "modules", "feedback"].includes(section) && role === "student" && <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />}
+          {!["guidelines", "modules", "feedback"].includes(section) && role === "trainer" && <TrainerView section={section} {...shared} onAssign={setAssignTo} />}
+          {!["guidelines", "modules", "feedback"].includes(section) && role === "advisor" && (STUDENT_SECTIONS.has(section)
+            ? <StudentView section={section} docs={docs} viewQuery={viewQuery} onStart={(t) => notify(`Opening "${t}" (demo)`)} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />
             : <AdvisorView section={section} {...shared} onManage={(n) => notify(`Managing ${n} (demo)`)} />)}
-          {section !== "guidelines" && role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
+          {!["guidelines", "modules", "feedback"].includes(section) && role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
         </main>
       </div>
 
@@ -502,22 +553,10 @@ function GuidelinesView() {
   );
 }
 
-function LessonCard({ title, sub, badge, actions, thumbId }: { title: string; sub: string; badge?: React.ReactNode; actions: React.ReactNode; thumbId?: string }) {
+function LessonCard({ title, sub, badge, actions, thumbId, favorite, previewId, previewable }: { title: string; sub: string; badge?: React.ReactNode; actions: React.ReactNode; thumbId?: string; favorite?: React.ReactNode; previewId?: string; previewable?: boolean }) {
   return (
     <div className="tile">
-      <div className="tile-thumb">
-        {thumbId ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img className="tile-cover" src={`/api/images/${thumbId}`} alt="" />
-        ) : (
-          <div className="tile-preview" aria-hidden>
-            <span className="tile-line" />
-            <span className="tile-line" />
-            <span className="tile-line short" />
-          </div>
-        )}
-        {badge && <span className="tile-badge">{badge}</span>}
-      </div>
+      <CardThumb cover={thumbId} previewId={previewId} previewable={previewable} badge={badge} favorite={favorite} />
       <div className="tile-info"><p className="tile-title">{title}</p><p className="tile-sub">{sub}</p></div>
       <div className="tile-actions">{actions}</div>
     </div>
@@ -539,25 +578,72 @@ type SharedProps = {
   onRetry: () => void;
 };
 
-function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true }: Omit<SharedProps, "onView"> & { heading: string; canUpload?: boolean }) {
+function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true, admin = false }: Omit<SharedProps, "onView"> & { heading: string; canUpload?: boolean; admin?: boolean }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<DocSort>("newest");
-  const term = q.trim().toLowerCase();
-  const visible = sortDocs(
-    docs.filter(
-      (d) =>
-        !term ||
-        d.name.toLowerCase().includes(term) ||
-        d.owner.toLowerCase().includes(term),
-    ),
-    sort,
-  );
+  const { countOf } = useFavorites();
+  const { folders, create: createFolder, rename: renameFolder, remove: removeFolder } = useFolders();
+  const visible = sortDocs(docs.filter((d) => matchesQuery(d, q)), sort, countOf);
+  const officialFolders = folders.filter((f) => f.official);
+
+  // Admin: promote/demote a resource to official (HOSA-created, locked).
+  async function toggleOfficial(d: Doc) {
+    const res = await fetch(`/api/doc/${d.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ official: !d.official }),
+    }).catch(() => null);
+    if (res?.ok) onRetry();
+  }
+
   return (
     <section className="role-section">
       <div className="section-head">
         <h2>{heading}</h2>
-        {canUpload && <button className="cta" disabled={uploading} onClick={onUploadClick}>{uploading ? "Uploading..." : "+ Upload PDF"}</button>}
+        <div style={{ display: "flex", gap: 8 }}>
+          {admin && (
+            <button
+              className="btn"
+              onClick={async () => {
+                const name = window.prompt("New module name");
+                if (name && name.trim()) await createFolder(name.trim(), true);
+              }}
+            >
+              + New module
+            </button>
+          )}
+          {canUpload && <button className="cta" disabled={uploading} onClick={onUploadClick}>{uploading ? "Uploading..." : "+ Upload PDF"}</button>}
+        </div>
       </div>
+      {admin && officialFolders.length > 0 && (
+        <div className="folder-manage-list" role="group" aria-label="Modules">
+          {officialFolders.map((f) => (
+            <span key={f.id} className="folder-manage-item">
+              <span className="folder-manage-name">{f.name}</span>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={async () => {
+                  const name = window.prompt("Rename module", f.name);
+                  if (name && name.trim() && name.trim() !== f.name) await renameFolder(f.id, name.trim());
+                }}
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                className="link-btn link-danger"
+                onClick={async () => {
+                  if (!window.confirm(`Delete the module "${f.name}"? Its resources stay, but become unfiled.`)) return;
+                  await removeFolder(f.id);
+                }}
+              >
+                Delete
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       {!loading && !loadError && docs.length > 0 && (
         <DocToolbar q={q} setQ={setQ} sort={sort} setSort={setSort} shown={visible.length} total={docs.length} />
       )}
@@ -581,11 +667,21 @@ function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, 
           ) : (
           visible.map((d) => (
             <LessonCard key={d.id} title={d.name} sub={`${d.bundled ? "Sample" : "Uploaded"} · ${(d.sizeBytes / 1024).toFixed(0)} KB`}
+              previewId={d.id} previewable={isPreviewable(d)}
+              favorite={<FavoriteButton id={d.id} label={d.name} />}
               actions={<>
                 <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>View</Link>
                 {!d.bundled && canManageSharing(d, DEMO_VIEWER) && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
                 <button className="btn" onClick={() => onShare(d)}>Get link</button>
                 <button className="btn" onClick={() => onCopy(d)}>Make a copy</button>
+                {admin && !d.bundled && (
+                  <button className={`btn${d.official ? " danger" : ""}`} onClick={() => void toggleOfficial(d)}>
+                    {d.official ? "Remove from modules" : "Add to modules"}
+                  </button>
+                )}
+                {admin && d.official && officialFolders.length > 0 && (
+                  <MoveToFolder docId={d.id} current={d.folderId} folders={officialFolders} onMoved={onRetry} />
+                )}
                 {!d.bundled && d.owner === DEMO_VIEWER.owner && <button className="btn danger" onClick={() => onDelete(d)}>Delete</button>}
               </>} />
           ))
@@ -610,14 +706,21 @@ function ViewerModal({ src, onClose }: { src: string; onClose: () => void }) {
 
 /* ---------------------------------------------------------------- role views */
 
-function StudentView({ section, docs, viewQuery, onStart, uploading, onUploadClick, onShareScope, onCopy }: { section: string; docs: Doc[]; viewQuery: string; onStart: (title: string) => void; uploading: boolean; onUploadClick: () => void; onShareScope: (d: Doc) => void; onCopy: (d: Doc) => void }) {
+function StudentView({ section, docs, viewQuery, onStart, uploading, onUploadClick, onShareScope, onCopy, onChanged }: { section: string; docs: Doc[]; viewQuery: string; onStart: (title: string) => void; uploading: boolean; onUploadClick: () => void; onShareScope: (d: Doc) => void; onCopy: (d: Doc) => void; onChanged: () => void }) {
   const done = STUDENT_ASSIGNMENTS.filter((a) => a.status === "done").length;
   const total = STUDENT_ASSIGNMENTS.length;
   const pct = Math.round((done / total) * 100);
   const next = STUDENT_ASSIGNMENTS.find((a) => a.status !== "done");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<DocSort>("newest");
-  const [mode, setMode] = useState<FilterMode>("accessible");
+  const [mode, setMode] = useState<ResourceMode>("accessible");
+  const [event, setEvent] = useState("");
+  const [folderId, setFolderId] = useState<string | null>(null);
+  const { favorites, countOf } = useFavorites();
+  const { folders, create: createFolder, rename: renameFolder, remove: removeFolder } = useFolders();
+  // Flashcard decks are resources too: they show in this grid alongside docs.
+  const { decks, copy: copyDeck, del: delDeck, load: reloadDecks, busyId: deckBusy } = useDecks();
+  const [deckShare, setDeckShare] = useState<ShareTarget | null>(null);
 
   if (section === "home") {
     return (
@@ -686,31 +789,56 @@ function StudentView({ section, docs, viewQuery, onStart, uploading, onUploadCli
   }
 
   if (section === "resources") {
-    const term = q.trim().toLowerCase();
-    const counts: Record<FilterMode, number> = {
-      accessible: filterScoped(docs, DEMO_VIEWER, "accessible").length,
-      mine: filterScoped(docs, DEMO_VIEWER, "mine").length,
+    // Unified resources: uploaded documents + flashcard decks. Official content
+    // (HOSA-authored "Modules") is excluded here - it lives in its own Modules
+    // tab, so Resources is just the shared/community pool.
+    const items: ResItem[] = [
+      ...docs.filter((d) => !d.official).map((d) => ({ kind: "doc" as const, ...d })),
+      ...decks.map((k) => ({
+        kind: "deck" as const,
+        id: k.id, name: k.title, owner: k.owner, visibility: k.visibility,
+        chapter: k.chapter, people: k.people, cardCount: k.cardCount,
+        uploadedAt: k.createdAt, sizeBytes: 0,
+      })),
+    ];
+    // Recover the original Doc for the doc-specific share/copy handlers.
+    const docFromItem = (d: ResItem): Doc => docs.find((x) => x.id === d.id)!;
+    const accessible = filterScoped(items, DEMO_VIEWER, "accessible");
+    const counts: Record<ResourceMode, number> = {
+      accessible: accessible.length,
+      mine: filterScoped(items, DEMO_VIEWER, "mine").length,
+      saved: accessible.filter((d) => favorites.has(d.id)).length,
       public: 0,
       chapter: 0,
     };
-    const scoped = filterScoped(docs, DEMO_VIEWER, mode);
-    const visible = sortDocs(
-      scoped.filter(
-        (d) =>
-          !term ||
-          d.name.toLowerCase().includes(term) ||
-          d.owner.toLowerCase().includes(term),
-      ),
-      sort,
+    const scoped = mode === "saved"
+      ? accessible.filter((d) => favorites.has(d.id))
+      : filterScoped(items, DEMO_VIEWER, mode);
+    // Event options come from the CURRENT scope (not all accessible docs), so
+    // the dropdown never offers a category that isn't in the active tab.
+    const eventList = [...new Set(scoped.map((d) => d.event).filter((e): e is string => !!e))]
+      .sort((a, b) => a.localeCompare(b));
+    // Folders shown in the bar: those with at least one resource in the current
+    // scope. Personal folders you can file INTO come from `myFolders`.
+    const foldersInScope = folders.filter((f) => scoped.some((d) => d.folderId === f.id));
+    const myFolders = folders.filter((f) => !f.official);
+    const filtered = scoped.filter(
+      (d) => (!event || d.event === event) && (!folderId || d.folderId === folderId) && matchesQuery(d, q),
     );
-    const mineEmpty = mode === "mine" && visible.length === 0 && !term;
+    const visible = sortDocs(filtered, sort, countOf);
+    const noFilters = !q.trim() && !event && !folderId;
+    const mineEmpty = mode === "mine" && visible.length === 0 && noFilters;
+    const savedEmpty = mode === "saved" && visible.length === 0 && noFilters;
     return (
       <section className="role-section">
         <div className="section-head">
           <h2>Resources</h2>
-          <button className="cta" disabled={uploading} onClick={onUploadClick}>
-            {uploading ? "Uploading..." : "+ Upload a resource"}
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link className="btn" href="/upload?type=flashcards">+ New flashcards</Link>
+            <button className="cta" disabled={uploading} onClick={onUploadClick}>
+              {uploading ? "Uploading..." : "+ Upload a resource"}
+            </button>
+          </div>
         </div>
         <div className="seg-toggle" role="tablist" aria-label="Resource scope">
           {FILTERS.map((f) => (
@@ -720,7 +848,7 @@ function StudentView({ section, docs, viewQuery, onStart, uploading, onUploadCli
               role="tab"
               aria-selected={mode === f.id}
               className={`seg-btn${mode === f.id ? " is-active" : ""}`}
-              onClick={() => setMode(f.id)}
+              onClick={() => { setMode(f.id); setEvent(""); setFolderId(null); setQ(""); }}
             >
               {f.label} <span className="seg-count">{counts[f.id]}</span>
             </button>
@@ -729,34 +857,132 @@ function StudentView({ section, docs, viewQuery, onStart, uploading, onUploadCli
         <p className="dash-sub" style={{ marginTop: 10, marginBottom: 12 }}>
           {mode === "mine"
             ? "Files you uploaded. They start private; use Share to let your chapter or everyone see them."
-            : `Everything shared with you, viewing as a member of ${DEMO_VIEWER.chapter}.`}
+            : mode === "saved"
+              ? "Resources you saved. Tap the heart on any resource to add it here."
+              : `Everything shared with you, viewing as a member of ${DEMO_VIEWER.chapter}.`}
         </p>
-        <DocToolbar q={q} setQ={setQ} sort={sort} setSort={setSort} shown={visible.length} total={scoped.length} />
+        <div className="folder-bar" role="tablist" aria-label="Folders">
+          <button
+            type="button"
+            className={`folder-chip${!folderId ? " is-active" : ""}`}
+            onClick={() => setFolderId(null)}
+          >
+            All resources
+          </button>
+          {foldersInScope.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={`folder-chip${folderId === f.id ? " is-active" : ""}${f.official ? " is-official" : ""}`}
+              onClick={() => setFolderId(f.id)}
+            >
+              {f.name}
+              <span className="folder-count">{scoped.filter((d) => d.folderId === f.id).length}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className="folder-chip folder-new"
+            onClick={async () => {
+              const name = window.prompt("New folder name");
+              if (name && name.trim()) await createFolder(name.trim());
+            }}
+          >
+            + New folder
+          </button>
+        </div>
+        {(() => {
+          // Manage controls for the selected folder. Only personal (non-official)
+          // folders are shown here, and the API returns only the viewer's own, so
+          // any non-official folder in scope is theirs to rename or delete.
+          const active = folderId ? foldersInScope.find((f) => f.id === folderId) : null;
+          if (!active || active.official) return null;
+          return (
+            <div className="folder-manage" role="group" aria-label={`Manage folder ${active.name}`}>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={async () => {
+                  const name = window.prompt("Rename folder", active.name);
+                  if (name && name.trim() && name.trim() !== active.name) await renameFolder(active.id, name.trim());
+                }}
+              >
+                Rename folder
+              </button>
+              <button
+                type="button"
+                className="link-btn link-danger"
+                onClick={async () => {
+                  if (!window.confirm(`Delete the folder "${active.name}"? Its resources stay, but become unfiled.`)) return;
+                  const ok = await removeFolder(active.id);
+                  if (ok) setFolderId(null);
+                }}
+              >
+                Delete folder
+              </button>
+            </div>
+          );
+        })()}
+        <DocToolbar q={q} setQ={setQ} sort={sort} setSort={setSort} shown={visible.length} total={scoped.length}
+          events={eventList} event={event} setEvent={setEvent} />
         <div className="tile-grid">
-          {visible.map((d) => (
-            <LessonCard key={d.id} title={d.name} thumbId={d.thumbnailId}
+          {visible.map((d) => d.kind === "deck" ? (
+            <LessonCard key={d.id} title={d.name} previewable={false}
+              favorite={<FavoriteButton id={d.id} label={d.name} />}
               badge={<span className={`badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>{VIS_LABEL[d.visibility]}</span>}
-              sub={`${d.bundled ? "HOSA official" : d.owner === DEMO_VIEWER.owner ? "Your upload" : "Shared by a member"}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}${d.people.length > 0 ? ` · shared with ${d.people.length}` : ""}`}
+              sub={`Flashcards · ${d.cardCount} card${d.cardCount === 1 ? "" : "s"}${d.owner === DEMO_VIEWER.owner ? " · Yours" : d.owner === "system" ? " · HOSA sample" : ` · By ${d.owner}`}${d.people.length > 0 ? ` · shared with ${d.people.length}` : ""}`}
+              actions={
+                <>
+                  <Link className="btn primary" href={`/decks/${d.id}`}>Study</Link>
+                  {d.id !== "sample-deck" && canEdit(d, DEMO_VIEWER) && <Link className="btn" href={`/decks/${d.id}/edit`}>Edit</Link>}
+                  <button className="btn" disabled={deckBusy === d.id} onClick={() => void copyDeck(d.id)}>Make a copy</button>
+                  {d.id !== "sample-deck" && canManageSharing(d, DEMO_VIEWER) && (
+                    <button className="btn" onClick={() => setDeckShare({ kind: "deck", id: d.id, name: d.name, visibility: d.visibility, chapter: d.chapter, people: d.people, owner: d.owner })}>Share</button>
+                  )}
+                  {d.owner === DEMO_VIEWER.owner && <button className="btn danger" disabled={deckBusy === d.id} onClick={() => void delDeck(d.id)}>Delete</button>}
+                </>
+              } />
+          ) : (
+            <LessonCard key={d.id} title={d.name} thumbId={d.thumbnailId}
+              previewId={d.id} previewable={isPreviewable(d)}
+              favorite={<FavoriteButton id={d.id} label={d.name} />}
+              badge={d.official
+                ? <span className="badge badge-official">Official</span>
+                : <span className={`badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>{VIS_LABEL[d.visibility]}</span>}
+              sub={`${d.official || d.bundled ? "HOSA official" : d.owner === DEMO_VIEWER.owner ? "Your upload" : "Shared by a member"}${d.event ? ` · ${d.event}` : ""}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}${d.people.length > 0 ? ` · shared with ${d.people.length}` : ""}`}
               actions={
                 <>
                   <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>Open</Link>
-                  {!d.bundled && canManageSharing(d, DEMO_VIEWER) && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
-                  <button className="btn" onClick={() => onCopy(d)}>Make a copy</button>
+                  {!d.bundled && canManageSharing(d, DEMO_VIEWER) && <button className="btn" onClick={() => onShareScope(docFromItem(d))}>Share</button>}
+                  <button className="btn" onClick={() => onCopy(docFromItem(d))}>Make a copy</button>
+                  {!d.official && d.owner === DEMO_VIEWER.owner && myFolders.length > 0 && (
+                    <MoveToFolder docId={d.id} current={d.folderId} folders={myFolders} onMoved={onChanged} />
+                  )}
                 </>
               } />
           ))}
-          {mineEmpty
-            ? <div className="empty-state">You have not uploaded anything yet. Use Upload a resource to add one.</div>
+          {savedEmpty
+            ? <div className="empty-state">No saved resources yet. Tap the heart on any resource to save it here.</div>
+            : mineEmpty
+            ? <div className="empty-state">Nothing of yours yet. Upload a document or create flashcards to get started.</div>
             : visible.length === 0 && <div className="empty-state">No resources match.</div>}
         </div>
+        {deckShare && (
+          <ShareDialog
+            target={deckShare}
+            onClose={() => setDeckShare(null)}
+            onSaved={() => { setDeckShare(null); void reloadDecks(); }}
+          />
+        )}
       </section>
     );
   }
 
   if (section === "flashcards") return <FlashcardsView />;
   if (section === "quizzes") return <QuizzesView />;
+  if (section === "skills") return <SkillsView />;
 
-  return <ComingSoon title="General skills" note="Round-2 practice - the buzzer game, doing skills in front of AI, and more. Coming soon." />;
+  return <ComingSoon title={section} />;
 }
 
 function TrainerView({ section, onAssign, ...shared }: SharedProps & { section: string; onAssign: (memberId: string) => void }) {
@@ -780,8 +1006,9 @@ function TrainerView({ section, onAssign, ...shared }: SharedProps & { section: 
   }
   if (section === "flashcards") return <FlashcardsView />;
   if (section === "quizzes") return <QuizzesView />;
+  if (section === "skills") return <SkillsView />;
 
-  return <ComingSoon title="General skills" note="Round-2 practice - the buzzer game, skills in front of AI, and more. Coming soon." />;
+  return <ComingSoon title={section} />;
 }
 
 function AdvisorView({ section, onManage, ...shared }: SharedProps & { section: string; onManage: (name: string) => void }) {
@@ -838,7 +1065,7 @@ function AdminView({ section, onRole, ...shared }: SharedProps & { section: stri
       </section>
     );
   }
-  if (section === "content") return <DocManager {...shared} heading="All content" />;
+  if (section === "content") return <DocManager {...shared} heading="All content" admin />;
   if (section === "access") {
     return (
       <section className="role-section">

@@ -45,6 +45,24 @@ export interface StorageBackend {
   remove(id: string): Promise<boolean>;
 }
 
+/**
+ * A minimal durable byte store keyed by an opaque id, for content that isn't a
+ * "resource" (card/flashcard images, and anything else referenced by id rather
+ * than listed). Backed by the same object storage as uploads when configured,
+ * or an in-memory map locally. Unlike StorageBackend it carries no metadata and
+ * is never listed - callers hold the id.
+ */
+export interface StoredBlob {
+  bytes: Uint8Array;
+  contentType: string;
+}
+
+export interface BlobStore {
+  get(id: string): Promise<StoredBlob | undefined>;
+  put(id: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  remove(id: string): Promise<boolean>;
+}
+
 export const DEFAULT_SCOPE: UploadScope = { visibility: "public", chapter: "", owner: "system" };
 
 /** Cap so a long-lived deployment can't grow unbounded. */

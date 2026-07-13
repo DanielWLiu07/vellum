@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { CreateContent } from "@/components/create-content";
+import { ProfileBadge } from "@/components/profile-badge";
 
 export const metadata: Metadata = {
   title: "HOSA Vitals - add content",
@@ -17,6 +18,7 @@ export default function UploadPage() {
         <span className="dash-topnav-links">
           <Link href="/dashboard" className="dash-back">Dashboard</Link>
           <Link href="/guidelines" className="dash-back">Guidelines</Link>
+          <ProfileBadge />
         </span>
       </nav>
       {enabled ? (

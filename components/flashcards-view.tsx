@@ -6,6 +6,7 @@ import * as React from "react";
 import type { DeckMeta } from "@/lib/decks";
 import { DEMO_VIEWER, canEdit, canManageSharing } from "@/lib/visibility";
 
+import { FavoriteButton } from "./favorite-button";
 import { ShareDialog, type ShareTarget } from "./share-dialog";
 
 const VIS_LABEL = { public: "Public", chapter: "Chapter", private: "Private" } as const;
@@ -86,6 +87,7 @@ export function FlashcardsView() {
                   <span className={`tile-badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>
                     {VIS_LABEL[d.visibility]}
                   </span>
+                  <FavoriteButton id={d.id} label={d.title} />
                 </div>
                 <div className="tile-info">
                   <p className="tile-title">{d.title}</p>

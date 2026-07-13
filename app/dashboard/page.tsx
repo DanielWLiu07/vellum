@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Dashboard } from "@/components/dashboard";
+import { FavoritesProvider } from "@/components/favorites-context";
+import { ProfileBadge } from "@/components/profile-badge";
 
 export const metadata: Metadata = {
   title: "HOSA Vitals - dashboard",
@@ -18,10 +20,13 @@ export default function DashboardPage() {
           <Link href="/upload" className="dash-back">Upload</Link>
           <Link href="/guidelines" className="dash-back">Guidelines</Link>
           <Link href="/" className="dash-back">← Overview</Link>
+          <ProfileBadge />
         </span>
       </nav>
       {enabled ? (
-        <Dashboard />
+        <FavoritesProvider>
+          <Dashboard />
+        </FavoritesProvider>
       ) : (
         <div className="dash"><p className="dash-muted">The dashboard is disabled on this deployment.</p></div>
       )}

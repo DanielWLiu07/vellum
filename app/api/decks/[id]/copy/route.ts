@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
 import { duplicateDeck, getDeck } from "@/lib/decks";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { setShare } from "@/lib/resource-share";
-import { DEMO_VIEWER, canView } from "@/lib/visibility";
+import { getViewer } from "@/lib/profile";
+import { canView } from "@/lib/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +14,7 @@ export const dynamic = "force-dynamic";
 // Google-Docs "Make a copy" for a deck: anyone who can view it can clone it.
 // The copy belongs to the caller and starts private.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  await enterRequest(req);
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
   }
@@ -25,12 +28,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const deck = getDeck(id);
   if (!deck) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (!canView(deck, DEMO_VIEWER)) return NextResponse.json({ error: "not_found" }, { status: 404 }); // no existence leak
+  if (!canView(deck, getViewer())) return NextResponse.json({ error: "not_found" }, { status: 404 }); // no existence leak
 
-  const copy = duplicateDeck(id, DEMO_VIEWER.owner);
+  const copy = duplicateDeck(id, getViewer().owner);
   if (!copy) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  setShare(copy.id, { visibility: "private", chapter: DEMO_VIEWER.chapter, people: [] });
-  recordAudit("deck.copy", copy.title, clientIp(req));
+  setShare(copy.id, { visibility: "private", chapter: getViewer().chapter, people: [] });
+  recordAudit("deck.copy", copy.title);
   return NextResponse.json(
     { id: copy.id, title: copy.title, cardCount: copy.cards.length },
     { headers: { "Cache-Control": "no-store" } },

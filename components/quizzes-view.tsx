@@ -6,6 +6,7 @@ import * as React from "react";
 import type { QuizMeta } from "@/lib/quizzes";
 import { DEMO_VIEWER, canEdit, canManageSharing } from "@/lib/visibility";
 
+import { FavoriteButton } from "./favorite-button";
 import { ShareDialog, type ShareTarget } from "./share-dialog";
 
 const VIS_LABEL = { public: "Public", chapter: "Chapter", private: "Private" } as const;
@@ -89,10 +90,12 @@ export function QuizzesView() {
                   <span className={`tile-badge badge-${q.visibility === "public" ? "ok" : q.visibility === "chapter" ? "warn" : "muted"}`}>
                     {VIS_LABEL[q.visibility]}
                   </span>
+                  <FavoriteButton id={q.id} label={q.title} />
                 </div>
                 <div className="tile-info">
                   <p className="tile-title">{q.title}</p>
                   <p className="tile-sub">
+                    {q.isExam && <span className="exam-badge" style={{ marginRight: 6 }}>Exam</span>}
                     {q.questionCount} question{q.questionCount === 1 ? "" : "s"}
                     {" · "}
                     {q.owner === "system" ? "HOSA sample" : mine ? "Yours" : `By ${q.owner}`}
@@ -102,6 +105,7 @@ export function QuizzesView() {
                 <div className="tile-actions">
                   <Link className="btn primary" href={`/quizzes/${q.id}`}>Take</Link>
                   {editable && <Link className="btn" href={`/quizzes/${q.id}/edit`}>Edit</Link>}
+                  {mine && q.isExam && <Link className="btn" href={`/quizzes/${q.id}/attempts`}>Attempts</Link>}
                   <button type="button" className="btn" disabled={busyId === q.id} onClick={() => copy(q)}>Make a copy</button>
                   {canShare && (
                     <button

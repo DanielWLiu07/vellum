@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
+import { scanCopyright } from "@/lib/copyright";
+import { flaggedReason, moderateImage, moderateText } from "@/lib/moderation";
+import { extractPdfText } from "@/lib/pdf-content";
+import { moderatePdfContent } from "@/lib/pdf-moderation";
+import { getViewer } from "@/lib/profile";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { setResourceMeta } from "@/lib/resource-meta";
 import { addUpload } from "@/lib/store";
 import { setThumbnail } from "@/lib/thumbnails";
 
@@ -29,6 +36,7 @@ function sniffType(b: Uint8Array): string | null {
 // Dashboard-mode upload. Gated behind VELLUM_DEMO_MODE so an embed-only
 // deployment can turn the standalone dashboard off.
 export async function POST(req: NextRequest) {
+  await enterRequest(req);
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
   }
@@ -55,11 +63,51 @@ export async function POST(req: NextRequest) {
   // Optional display name override; falls back to the file name.
   const nameField = form?.get("name");
   const name = typeof nameField === "string" && nameField.trim() ? nameField.trim() : file.name;
+  const eventField = form?.get("event");
+  const event = typeof eventField === "string" ? eventField.trim().slice(0, 60) : "";
+  const noPreview = form?.get("noPreview") === "1";
+  // AI moderation. Always check the title text; then the BODY: an image upload
+  // is checked as a picture, and a PDF is checked page by page (the text AND a
+  // rendered image of every page, so nothing on any page slips through). No-ops
+  // without a key.
+  const nameMod = await moderateText([name, event].filter(Boolean).join("\n"));
+  const bodyMod = contentType.startsWith("image/")
+    ? await moderateImage(bytes, contentType)
+    : contentType === "application/pdf"
+      ? await moderatePdfContent(bytes)
+      : null;
+  const mod = !nameMod.allowed ? nameMod : bodyMod && !bodyMod.allowed ? bodyMod : null;
+  if (mod) {
+    recordAudit("document.blocked", name, flaggedReason(mod));
+    return NextResponse.json({ error: "content_flagged", categories: mod.categories }, { status: 422 });
+  }
+  // Copyright screen: scan the title and (for PDFs) the document text for clear
+  // markers of third-party published material, so we don't host an infringing
+  // scan. Best-effort heuristic; the upload's rights-confirmation checkbox is
+  // the other half of this defense.
+  let copyrightText = name;
+  if (contentType === "application/pdf") {
+    try {
+      const { text } = await extractPdfText(bytes);
+      copyrightText += "\n" + text;
+    } catch {
+      // extraction failure: fall back to scanning the title only
+    }
+  }
+  // Copyright markers (ISBN, publisher, notices) sit in the front matter, so a
+  // bounded scan of the leading text is enough and avoids a huge allocation.
+  const copyright = scanCopyright(copyrightText.slice(0, 200_000));
+  if (copyright.flagged) {
+    recordAudit("document.copyright_blocked", name, copyright.signals.join(", "));
+    return NextResponse.json({ error: "copyright_flagged", signals: copyright.signals }, { status: 451 });
+  }
   // Uploads start private; the owner shares them afterward from My resources.
-  const scope = { visibility: "private" as const, chapter: "", owner: "you" };
+  const viewer = getViewer();
+  const scope = { visibility: "private" as const, chapter: viewer.chapter, owner: viewer.owner };
   const meta = await addUpload(name, bytes, contentType, scope);
   const thumbField = form?.get("thumbnailId");
   if (typeof thumbField === "string" && thumbField) setThumbnail(meta.id, thumbField.slice(0, 64));
-  recordAudit("document.upload", meta.name, clientIp(req));
+  if (event || noPreview) setResourceMeta(meta.id, { event, noPreview });
+  recordAudit("document.upload", meta.name);
   return NextResponse.json({ id: meta.id, name: meta.name, sizeBytes: meta.sizeBytes, contentType });
 }

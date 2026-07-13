@@ -98,11 +98,12 @@ describe("deck ownership + editing", () => {
     }
   });
 
-  it("updateDeck refuses to empty a deck and refuses the sample", () => {
+  it("updateDeck allows emptying a deck (live-editor draft) but the sample stays immutable", () => {
     const d = createDeck("Keep", [{ front: "a", back: "b" }]);
     try {
-      expect(updateDeck(d.id, { cards: [{ front: "", back: "" }] })).toBeUndefined();
-      expect(getDeck(d.id)!.cards).toHaveLength(1);
+      // A live-editor draft can be emptied - the editor autosaves what's on screen.
+      expect(updateDeck(d.id, { cards: [{ front: "", back: "" }] })).toBeDefined();
+      expect(getDeck(d.id)!.cards).toHaveLength(0);
       expect(updateDeck("sample-deck", { title: "hijack" })).toBeUndefined();
     } finally {
       deleteDeck(d.id);

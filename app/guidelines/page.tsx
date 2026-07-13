@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ProfileBadge } from "@/components/profile-badge";
 
 export const metadata: Metadata = {
   title: "HOSA Vitals - content guidelines",
@@ -15,6 +16,7 @@ export default function GuidelinesPage() {
         <span className="dash-topnav-links">
           <Link href="/dashboard" className="dash-back">Dashboard</Link>
           <Link href="/upload" className="dash-back">Upload</Link>
+          <ProfileBadge />
         </span>
       </nav>
 
