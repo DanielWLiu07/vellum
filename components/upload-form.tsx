@@ -178,7 +178,9 @@ export function UploadForm() {
         <div className="upload-preview">
           <p className="upload-preview-label">Preview</p>
           {file?.type === "application/pdf" ? (
-            <iframe className="upload-preview-frame" src={docUrl} title="Document preview" />
+            // sandbox (no allow-scripts) neutralizes any active content if the
+            // file isn't really a PDF - defense in depth for the local preview.
+            <iframe className="upload-preview-frame" src={docUrl} title="Document preview" sandbox="allow-same-origin" />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img className="upload-preview-img" src={docUrl} alt="Selected file preview" />
