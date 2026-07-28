@@ -3,6 +3,9 @@
 import Link from "next/link";
 import * as React from "react";
 
+import { renderMarkdown } from "@/lib/markdown";
+import { RETURN_TO, returnLabel } from "@/lib/return-to";
+
 import { Comments } from "./comments";
 import { SlidesScroll } from "./slides-scroll";
 
@@ -35,7 +38,12 @@ const canScrollDeck = (s: Subsection) =>
 const renderSource = (s: Subsection) => (s.kind === "pdf" ? s.docId : s.slidesId);
 const hasContent = (s: Subsection) => (s.kind === "info" ? Boolean(s.body.trim()) : s.kind === "pdf" ? Boolean(s.docId) : Boolean(s.slidesId));
 
-export function ModulePlayer({ moduleId }: { moduleId: string }) {
+export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
+  moduleId: string;
+  /** Validated destination for "Finish" and the sidebar's way out. */
+  backHref?: string;
+}) {
+  const backLabel = returnLabel(backHref);
   const [mod, setMod] = React.useState<Module | null>(null);
   const [err, setErr] = React.useState(false);
   const [mode, setMode] = React.useState<Mode>("scroll");
@@ -78,14 +86,14 @@ export function ModulePlayer({ moduleId }: { moduleId: string }) {
   const next = React.useCallback(() => setI((x) => Math.min(steps.length - 1, x + 1)), [steps.length]);
   const prev = React.useCallback(() => setI((x) => Math.max(0, x - 1)), []);
 
-  if (err) return <div className="upload-card"><p className="dash-sub">Module not found.</p><Link className="btn" href="/dashboard?section=modules">Back to modules</Link></div>;
+  if (err) return <div className="upload-card"><p className="dash-sub">Module not found.</p><Link className="btn" href={backHref}>← {backLabel}</Link></div>;
   if (!mod) return <div className="upload-card"><p className="dash-sub">Loading module...</p></div>;
   if (steps.length === 0) {
     return (
       <div className="upload-card">
         <h1 className="upload-h">{mod.title}</h1>
         <p className="dash-sub">This module has no subsections yet.</p>
-        <Link className="btn" href="/dashboard?section=modules">Back to modules</Link>
+        <Link className="btn" href={backHref}>← {backLabel}</Link>
       </div>
     );
   }
@@ -107,7 +115,7 @@ export function ModulePlayer({ moduleId }: { moduleId: string }) {
   return (
     <div className="module-shell">
       <aside className="module-sidebar">
-        <Link className="dash-back" href="/dashboard?section=modules">← Modules</Link>
+        <Link className="dash-back" href={backHref}>← {backLabel}</Link>
         <p className="module-side-title">{mod.title}</p>
         <div className="module-side-progress">
           <div className="module-progress-bar"><span style={{ width: `${pct}%` }} /></div>
@@ -170,12 +178,10 @@ export function ModulePlayer({ moduleId }: { moduleId: string }) {
             <p className="dash-sub">An admin can add a Google Slides/Docs link, a PDF, or written info for this subsection in the module editor.</p>
           </div>
         ) : step.sub.kind === "info" ? (
-          // Info: authored text, straight on the site (no file).
-          <article className="module-info">
-            {step.sub.body.split("\n").filter((line) => line.trim()).map((line, k) => (
-              <p key={k} className="module-info-p">{line}</p>
-            ))}
-          </article>
+          // Info: authored Markdown, rendered straight on the site (no file).
+          // renderMarkdown escapes every text run before emitting a tag, so a
+          // body can't inject HTML - see the SAFETY note in lib/markdown.
+          <article className="module-info" dangerouslySetInnerHTML={{ __html: renderMarkdown(step.sub.body) }} />
         ) : step.sub.kind === "pdf" || showScroll ? (
           // Stacked, image-rendered pages (uploaded PDF, or a Google file's export).
           <div className="module-scroll-viewer">
@@ -198,7 +204,9 @@ export function ModulePlayer({ moduleId }: { moduleId: string }) {
             {done.has(step.sub.id) ? "✓ Done" : "Mark done"}
           </button>
           {idx === steps.length - 1 ? (
-            <Link className="cta" href="/dashboard?section=modules" onClick={() => markDone(step.sub.id)}>Finish</Link>
+            // End of the module: tick the last subsection off and leave, rather
+            // than stranding the member on a slide with nowhere forward.
+            <Link className="cta" href={backHref} onClick={() => markDone(step.sub.id)}>Finish · {backLabel}</Link>
           ) : (
             <button type="button" className="cta" onClick={() => { markDone(step.sub.id); next(); }}>Next →</button>
           )}
