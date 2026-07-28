@@ -17,9 +17,21 @@ const NAMES: Record<MemberRole, string> = {
 };
 
 // Demo sign-in: mints an identity token locally (standing in for the HOSA
-// handoff) so the auth flow is testable without the main site. Demo-mode only.
+// handoff) so the auth flow is testable without the main site.
+//
+// Gated on its OWN flag, not VELLUM_DEMO_MODE. VELLUM_DEMO_MODE is really the
+// master switch for the whole study platform (~30 routes, 12 pages), so
+// coupling this to it meant "turn the product on" also meant "expose an
+// endpoint that mints an admin session for any anonymous caller"
+// (?as=admin) - i.e. there was no configuration that gave HOSA a working
+// deployment without a public become-admin faucet. A real deployment sets
+// VELLUM_DEMO_MODE=1 and leaves VELLUM_DEMO_SIGNIN unset.
+export function demoSignInEnabled(): boolean {
+  return process.env.VELLUM_DEMO_SIGNIN === "1";
+}
+
 export async function GET(req: NextRequest) {
-  if (process.env.VELLUM_DEMO_MODE !== "1") {
+  if (!demoSignInEnabled()) {
     return NextResponse.json({ error: "demo_disabled" }, { status: 404 });
   }
   const secret = process.env.VITALS_AUTH_SECRET;

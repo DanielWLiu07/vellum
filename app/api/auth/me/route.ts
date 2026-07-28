@@ -15,7 +15,17 @@ export async function GET(req: NextRequest) {
     );
   }
   return NextResponse.json(
-    { signedIn: true, id: id.sub, name: id.name || id.sub, chapter: id.chapter, role: id.role },
+    {
+      signedIn: true,
+      id: id.sub,
+      name: id.name || id.sub,
+      // `chapter` is the id (the scoping key); `chapterName` is what to show.
+      // Always present, "" for a token minted before the field existed, so the
+      // client can render `chapterName || chapter` without an undefined check.
+      chapter: id.chapter,
+      chapterName: id.chapterName ?? "",
+      role: id.role,
+    },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

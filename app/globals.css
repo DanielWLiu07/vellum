@@ -1260,6 +1260,18 @@ h3 {
 }
 .profile-remove-photo:hover { text-decoration: underline; }
 
+/* Read-only field value (Chapter and Role, which come from the signed session)
+   - sits where an input would, styled as text so it doesn't invite editing. */
+.profile-readonly {
+  margin: 0; padding: 9px 0; font-size: 14px; color: var(--ink-soft);
+}
+
+/* The one-line explanation under a read-only field: where the value comes from
+   and where to change it. */
+.profile-field-note {
+  font-size: 12px; line-height: 1.4; color: var(--ink-soft);
+}
+
 .profile-fields { display: flex; flex-direction: column; gap: 14px; margin-top: 24px; }
 .profile-fields .dash-field { margin-top: 0; }
 .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -2039,36 +2051,9 @@ h3 {
   .module-scroll { gap: 28px; }
 }
 
-/* Module editor (admin authoring) */
-.mod-edit-sections { display: flex; flex-direction: column; gap: 16px; margin: 8px 0; }
-.mod-edit-section { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 16px; }
-.mod-edit-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.mod-edit-section-num { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--teal); }
-.mod-edit-subs { display: flex; flex-direction: column; gap: 12px; padding-left: 12px; border-left: 2px solid var(--tan); }
-.mod-edit-sub { border: 1px solid var(--border); border-radius: 10px; background: var(--tan-soft); padding: 12px; }
-.mod-edit-sub-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.mod-edit-sub-num { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--maroon); }
-.mod-edit-slides { display: flex; flex-direction: column; gap: 10px; padding-left: 10px; border-left: 2px solid var(--border); }
-.mod-edit-slide { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
-/* Split editor: form on the left, live student preview on the right. */
-.mod-editor-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; max-width: 1500px; margin: 24px auto; padding: 0 16px; }
-.mod-editor-form { max-width: none; margin: 0; }
-.mod-editor-preview {
-  position: sticky; top: 16px; border: 1px solid var(--border); border-radius: 16px;
-  background: var(--backdrop); padding: 12px; max-height: calc(100vh - 32px); overflow: auto;
-}
-.mod-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 4px 6px 10px; flex-wrap: wrap; }
-.mod-preview-label { font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--teal); }
-.mod-preview-frame { border-radius: 12px; background: var(--surface); padding: 12px; }
-/* The embedded player fits the narrower preview column. */
-.mod-preview-frame .module-shell { grid-template-columns: 1fr; gap: 14px; }
-.mod-preview-frame .module-sidebar { position: static; }
-.mod-preview-frame .module-scroll-viewer { height: 46vh; min-height: 300px; }
-@media (max-width: 1024px) {
-  .mod-editor-split { grid-template-columns: 1fr; }
-  .mod-editor-preview { position: static; max-height: none; }
-}
-
+/* Module editor (admin authoring). The editor renders the player's own shell -
+   see "module editor - view parity" at the end of this file for the editable
+   layer on top of it. */
 /* Subsection content-type picker + PDF field. */
 .mod-kind-tabs { display: inline-flex; gap: 3px; background: var(--tan-soft); border-radius: 8px; padding: 3px; margin-bottom: 8px; flex-wrap: wrap; }
 .mod-kind-tab {
@@ -2079,8 +2064,6 @@ h3 {
 .mod-pdf-field { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .mod-pdf-attached { font-size: 13px; font-weight: 600; color: var(--teal); }
 .mod-pdf-upload { cursor: pointer; }
-.mod-edit-slide-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.mod-edit-slide-num { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
 
 /* ---------------------------------------------------------- Feedback / reports */
 .feedback-form { display: flex; flex-direction: column; gap: 12px; max-width: 640px; }
@@ -2231,28 +2214,6 @@ h3 {
   padding: 10px 14px;
 }
 
-/* Drive-style folder tiles (dashboard Guidelines section) */
-.tile-folder { cursor: pointer; text-align: left; border: 0; padding: 0; background: none; font: inherit; }
-.tile-folder .tile-thumb { display: flex; align-items: center; justify-content: center; }
-.tile-preview.folder {
-  width: 72%;
-  height: 58%;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #e8d9c4, #dcc9ae);
-  border: 1px solid #d0bba6;
-  position: relative;
-  display: block;
-}
-.tile-preview.folder .folder-tab {
-  position: absolute;
-  top: -9px;
-  left: 10px;
-  width: 38%;
-  height: 10px;
-  border-radius: 6px 6px 0 0;
-  background: #d0bba6;
-  display: block;
-}
 
 /* Dedicated document viewer page (/view/[id]) */
 /* Fixed-height column: the frame gets the leftover space and the viewer's
@@ -2403,3 +2364,241 @@ button.viewer-copy-btn {
   padding: 0;
 }
 button.viewer-copy-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* ------------------------------------------------ module editor - view parity */
+/* The editor renders the player's own shell (.module-shell / .module-sidebar /
+   .module-stage), so everything here is just the "make it editable" layer:
+   chrome-less inputs that sit inside the player's type styles, plus the small
+   nav tools. Nothing below sets font-size/weight/colour on the shared text
+   classes, so .module-side-title, .module-stage-title etc. keep their look. */
+.mod-edit-shell { grid-template-columns: 300px 1fr; }
+
+/* An input that reads as the text it replaces until you hover or focus it. */
+.mod-edit-inline {
+  appearance: none; width: 100%; min-width: 0; font-family: inherit;
+  background: transparent; border: 1px solid transparent; border-radius: 7px;
+  padding: 2px 6px;
+}
+.mod-edit-inline:hover { border-color: var(--border); background: var(--surface); }
+.mod-edit-inline:focus { outline: none; border-color: var(--teal); background: var(--surface); box-shadow: 0 0 0 3px rgba(18, 98, 137, 0.15); }
+.mod-edit-inline::placeholder { color: var(--ink-soft); font-weight: 500; }
+
+.mod-edit-side-summary { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 2px; }
+/* Nav rows: the section head becomes a row (caret button + title input +
+   tools) instead of one big button. */
+.mod-edit-section-head { cursor: default; padding: 4px 4px 4px 2px; gap: 4px; }
+.mod-edit-section-head:hover { background: none; }
+.mod-edit-caret {
+  flex: 0 0 auto; appearance: none; border: none; background: none; cursor: pointer;
+  border-radius: 6px; padding: 3px 5px; display: grid; place-items: center;
+}
+.mod-edit-caret:hover { background: var(--tan-soft); }
+.mod-edit-section-input { font-size: 14px; font-weight: 700; color: var(--ink); }
+.mod-edit-sub-input { font-size: 13.5px; font-weight: 700; color: var(--teal); padding: 3px 6px; }
+
+.mod-edit-tools { flex: 0 0 auto; display: inline-flex; gap: 1px; opacity: 0.4; transition: opacity 0.15s; }
+.module-section:hover .mod-edit-tools,
+.module-sub.is-active .mod-edit-tools,
+.mod-edit-tools:focus-within { opacity: 1; }
+.mod-edit-tool {
+  appearance: none; border: none; background: none; cursor: pointer; padding: 0;
+  width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center;
+  font-size: 12px; line-height: 1; color: var(--ink-soft);
+}
+.mod-edit-tool:hover:not(:disabled) { background: var(--tan-soft); color: var(--ink); }
+.mod-edit-tool.is-danger:hover:not(:disabled) { color: var(--maroon); }
+.mod-edit-tool:disabled { opacity: 0.3; cursor: default; }
+
+.mod-edit-add {
+  appearance: none; border: none; background: none; cursor: pointer; text-align: left;
+  width: 100%; border-radius: 7px; padding: 6px 8px;
+  font-family: inherit; font-size: 13px; font-weight: 700; color: var(--teal);
+}
+.mod-edit-add:hover { background: var(--tan-soft); }
+.mod-edit-add-row { padding: 0 6px; }
+.mod-edit-side-actions {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+
+/* Stage: the row that points a subsection at its content, above the preview. */
+.mod-edit-source { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mod-edit-source .mod-kind-tabs { margin-bottom: 0; }
+/* Written info: the student's .module-info article, typed into directly. */
+.mod-edit-info {
+  display: block; width: 100%; min-height: 420px; resize: vertical;
+  font-family: inherit; font-size: 17px; line-height: 1.7; color: var(--ink);
+}
+.mod-edit-info:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(18, 98, 137, 0.15); }
+.mod-edit-step-count { font-size: 12px; font-weight: 700; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 720px) {
+  .mod-edit-shell { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------ authored markdown (info subsections) */
+/* Rendered by lib/markdown for both the player's article and the editor's
+   preview, so both sides of "what you write is what they read" style the same.
+   Sized off .module-info-p (17px/1.7) so body copy stays the anchor. */
+.module-info .md-h1,
+.module-info .md-h2,
+.module-info .md-h3,
+.module-info .md-h4,
+.module-info .md-h5,
+.module-info .md-h6 { margin: 26px 0 10px; font-weight: 800; color: var(--ink); line-height: 1.3; }
+.module-info > .md-h1:first-child,
+.module-info > .md-h2:first-child,
+.module-info > .md-h3:first-child { margin-top: 0; }
+.module-info .md-h1 { font-size: 26px; }
+.module-info .md-h2 { font-size: 22px; }
+.module-info .md-h3 { font-size: 19px; }
+.module-info .md-h4,
+.module-info .md-h5,
+.module-info .md-h6 { font-size: 17px; }
+.module-info .md-list { margin: 0 0 14px; padding-left: 24px; font-size: 17px; line-height: 1.7; color: var(--ink); }
+.module-info .md-list li { margin-bottom: 4px; }
+.module-info .md-quote {
+  margin: 0 0 14px; padding: 4px 0 4px 16px; border-left: 3px solid var(--tan);
+  font-size: 17px; line-height: 1.7; color: var(--ink-soft);
+}
+.module-info .md-rule { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+.module-info .md-link { color: var(--teal); text-decoration: underline; text-underline-offset: 2px; }
+.module-info .md-link:hover { color: var(--teal-deep); }
+.md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em;
+  background: var(--tan-soft); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px;
+}
+.module-info .md-pre {
+  margin: 0 0 14px; padding: 14px 16px; overflow-x: auto;
+  background: var(--tan-soft); border: 1px solid var(--border); border-radius: 10px;
+}
+.module-info .md-pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; line-height: 1.6;
+  background: none; border: none; padding: 0; color: var(--ink);
+}
+/* The Markdown hint above the editor's textarea. */
+.mod-edit-source .dash-sub .md-code { font-size: 12px; }
+
+/* ------------------------------------------- official guidelines browser
+   A find-by-name list, not a gallery: the event name is the largest thing in
+   each row, the season is a compact control rather than a folder level, and
+   there is no per-row icon because every row is the same kind of file. All
+   colors come from the theme vars so light / warm / dark all hold up. */
+.guide-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 4px;
+}
+.year-pills {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--tan-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.year-pill {
+  appearance: none;
+  border: 0;
+  background: none;
+  border-radius: 7px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+.year-pill:hover { color: var(--ink); }
+.year-pill.is-active {
+  background: var(--surface);
+  color: var(--maroon);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.year-pill:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+/* "Current" rides along with the newest season so the default is legible. */
+.year-pill-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.year-pill.is-active .year-pill-tag { color: var(--maroon); }
+.guide-search { max-width: 340px; flex: 1 1 220px; }
+
+.guide-group {
+  margin: 22px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+.guide-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.guide-list li + li .guide-row { border-top: 1px solid var(--border); }
+.guide-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  text-decoration: none;
+  color: var(--ink);
+  transition: background 0.12s;
+}
+.guide-row:hover { background: var(--tan-soft); }
+.guide-row:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }
+.guide-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.guide-row:hover .guide-row-title { color: var(--maroon); }
+.guide-row-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.guide-row-ext { flex: 0 0 auto; color: var(--ink-soft); }
+.guide-row:hover .guide-row-ext { color: var(--teal); }
+
+/* ------------------------------------------------ return navigation (lib/return-to) */
+/* Modules list: how far you are through a module, so finishing one lands on a
+   list that shows it finished. Sits inline after the tile title. */
+.module-progress-chip {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 6px;
+  padding: 2px 7px;
+  background: var(--tan-soft);
+  color: var(--ink-soft);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.module-progress-chip.is-complete { background: #e7f3ec; color: #1c7a44; }
