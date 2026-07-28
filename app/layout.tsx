@@ -24,9 +24,16 @@ export const metadata: Metadata = {
     "Share notes, documents, and flashcards across your HOSA chapter, with a secure viewer that watermarks and protects gated content.",
 };
 
+// Apply the saved appearance before first paint so there's no flash. Default is
+// the light (white) theme; "warm" and "dark" are opt-in via Profile > Appearance.
+const themeScript = `try{var t=localStorage.getItem('vitals-theme');if(t==='warm'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${figtree.variable} ${ptSans.variable}`}>
+    <html lang="en" className={`${figtree.variable} ${ptSans.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>{children}</body>
     </html>
   );

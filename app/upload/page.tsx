@@ -1,29 +1,27 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
+import { AppShell } from "@/components/app-shell";
 import { CreateContent } from "@/components/create-content";
+import { roleFromParam } from "@/lib/nav";
+import { readReturn } from "@/lib/return-to";
 
 export const metadata: Metadata = {
   title: "HOSA Vitals - add content",
   description: "Add a document or flashcards to the shared resource pool.",
 };
 
-export default function UploadPage() {
+export default async function UploadPage({ searchParams }: { searchParams: Promise<{ role?: string; back?: string }> }) {
+  const { role, back } = await searchParams;
   const enabled = process.env.VELLUM_DEMO_MODE === "1";
   return (
-    <main className="dash-page">
-      <nav className="dash-topnav">
-        <Link href="/" className="dash-brand">HOSA Vitals</Link>
-        <span className="dash-topnav-links">
-          <Link href="/dashboard" className="dash-back">Dashboard</Link>
-          <Link href="/guidelines" className="dash-back">Guidelines</Link>
-        </span>
-      </nav>
+    <AppShell role={roleFromParam(role)} active="upload">
       {enabled ? (
-        <CreateContent />
+        // No `?back=` (someone opened Upload from the sidebar) leaves the
+        // destination to the form: each kind of content has its own home.
+        <CreateContent backHref={readReturn(back)} />
       ) : (
-        <div className="dash"><p className="dash-muted">Uploading is disabled on this deployment.</p></div>
+        <p className="dash-muted">Uploading is disabled on this deployment.</p>
       )}
-    </main>
+    </AppShell>
   );
 }

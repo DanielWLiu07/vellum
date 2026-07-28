@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { recordAudit } from "@/lib/audit";
 import { putImage } from "@/lib/images";
+import { flaggedReason, moderateImage } from "@/lib/moderation";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -38,6 +40,13 @@ export async function POST(req: NextRequest) {
   const contentType = sniffImage(bytes);
   if (!contentType) return NextResponse.json({ error: "not_image" }, { status: 415 });
 
-  const id = putImage(bytes, contentType);
+  // AI image moderation before the picture is stored; no-ops without a key.
+  const mod = await moderateImage(bytes, contentType);
+  if (!mod.allowed) {
+    recordAudit("image.blocked", "card image", flaggedReason(mod));
+    return NextResponse.json({ error: "content_flagged", categories: mod.categories }, { status: 422 });
+  }
+
+  const id = await putImage(bytes, contentType);
   return NextResponse.json({ id }, { headers: { "Cache-Control": "no-store" } });
 }

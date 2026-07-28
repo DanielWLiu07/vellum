@@ -4,11 +4,15 @@
  * in-memory, like the other stores.
  */
 
+import { persistMap } from "./durable";
+
 const g = globalThis as unknown as { __vitalsThumbs?: Map<string, string> };
 const store: Map<string, string> = (g.__vitalsThumbs ??= new Map());
+const { persist } = persistMap("thumbnails", store);
 
 export function setThumbnail(docId: string, imageId: string): void {
   store.set(docId, imageId);
+  persist();
 }
 
 export function getThumbnail(docId: string): string | undefined {
@@ -17,5 +21,5 @@ export function getThumbnail(docId: string): string | undefined {
 
 /** Drop a doc's thumbnail mapping (call when the doc is deleted). */
 export function deleteThumbnail(docId: string): void {
-  store.delete(docId);
+  if (store.delete(docId)) persist();
 }

@@ -17,14 +17,24 @@ type Status = "loading" | "ready" | "error";
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
 
-export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
+export function PdfViewer({
+  proxyUrl = "/api/proxy",
+  token: tokenProp,
+  initialMode,
+}: {
+  proxyUrl?: string;
+  /** Signed capability token. When set (the in-app /view page), the URL
+   *  fragment is ignored; /embed callers keep the fragment contract. */
+  token?: string;
+  initialMode?: Mode;
+}) {
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [claims, setClaims] = useState<ClientClaims | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
   const [scale, setScale] = useState(1.2);
-  const [mode, setMode] = useState<Mode>("scroll");
+  const [mode, setMode] = useState<Mode>(initialMode ?? "scroll");
   const [fitWidth, setFitWidth] = useState(true);
   const [isFull, setIsFull] = useState(false);
   const [showThumbs, setShowThumbs] = useState(false);
@@ -43,12 +53,12 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
       try {
         const hash = window.location.hash.replace(/^#/, "");
         const params = new URLSearchParams(hash);
-        const token = params.get("t");
+        const token = tokenProp ?? params.get("t");
         if (!token) throw new Error("No document token. This viewer must be opened with a signed link.");
 
         const decoded = decodeClaimsUnsafe(token);
         if (!cancelled && decoded) setClaims(decoded);
-        if (params.get("mode") === "slides") setMode("slides");
+        if (!tokenProp && params.get("mode") === "slides") setMode("slides");
 
         const res = await fetch(proxyUrl, {
           method: "POST",
@@ -96,10 +106,18 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [proxyUrl]);
+  }, [proxyUrl, tokenProp]);
+
+  // Monotonic render-pass id. renderPages is async and awaits between page
+  // appends; when scale/mode changes mid-pass (fit-width fires right after
+  // load), a second pass starts while the first is still looping — without
+  // this guard both passes interleave appends at two different scales
+  // (pages alternating small/big). Stale passes bail at every await point.
+  const renderGen = useRef(0);
 
   // ---- Render pages whenever the doc / scale / mode / page changes. ----
   const renderPages = useCallback(async () => {
+    const gen = ++renderGen.current;
     const container = containerRef.current;
     if (!container) return;
     const wm = claims?.wm ?? "";
@@ -115,6 +133,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
         img.onerror = () => resolve();
         img.src = url;
       });
+      if (gen !== renderGen.current) { URL.revokeObjectURL(url); return; }
       container.replaceChildren();
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.floor(img.naturalWidth * scale));
@@ -138,6 +157,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
     const pages = mode === "slides" ? [page] : range(1, doc.numPages);
     for (const n of pages) {
       const pdfPage = await doc.getPage(n);
+      if (gen !== renderGen.current) return; // a newer pass owns the container
       const viewport = pdfPage.getViewport({ scale });
       const canvas = document.createElement("canvas");
       canvas.width = Math.floor(viewport.width);
@@ -147,6 +167,7 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
       const ctx = canvas.getContext("2d");
       if (!ctx) continue;
       await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+      if (gen !== renderGen.current) return;
       if (wm) stampWatermark(ctx, canvas.width, canvas.height, wm);
       container.appendChild(canvas);
     }
@@ -255,7 +276,12 @@ export function PdfViewer({ proxyUrl = "/api/proxy" }: { proxyUrl?: string }) {
       const container = containerRef.current;
       if (!doc || !container) return;
       const native = (await doc.getPage(1)).getViewport({ scale: 1 }).width;
-      const avail = container.clientWidth - 56; // matches .vellum-scroll padding
+      // Google-Docs-style default zoom: fill the container on small screens,
+      // but never balloon past a comfortable reading width on big ones — Docs
+      // renders its page ~820px wide, centered on the gray canvas. The zoom
+      // buttons still go well past this; it's only the FIT target.
+      const MAX_FIT_WIDTH = 860;
+      const avail = Math.min(container.clientWidth - 56, MAX_FIT_WIDTH); // 56 matches .vellum-scroll padding
       if (cancelled || native <= 0 || avail <= 0) return;
       setScale(Math.min(MAX_SCALE, Math.max(0.25, +(avail / native).toFixed(3))));
     };

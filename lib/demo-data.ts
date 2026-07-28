@@ -1,8 +1,12 @@
 /**
- * Demo data for the role-aware dashboard. Vitals has no auth of its own, so the
- * "Viewing as" switcher previews how each HOSA-style role would see the same
- * platform. Documents are real (the store); rosters / assignments / progress /
- * users are illustrative fixtures.
+ * Demo data for the role-aware dashboard. The "Viewing as" switcher previews how
+ * each HOSA-style role would see the same platform; the SERVER still decides
+ * permissions from the session.
+ *
+ * Documents, assignments, and the roster are real now (lib/assignments +
+ * lib/users, via /api/assignments and /api/roster). What's left here is
+ * illustrative: chapter info, the platform stat tiles, and the users/roles
+ * table, which has no endpoint behind it yet.
  */
 
 export type Role = "student" | "trainer" | "advisor" | "admin";
@@ -31,52 +35,6 @@ export const CHAPTER: ChapterInfo = {
   nextEvent: { name: "Fall Leadership Conference (online)", date: "Nov 14" },
   announcement: "FLC registration is open. Confirm your competitive events with your advisor by Oct 20.",
 };
-
-export interface AssignedItem {
-  id: string;
-  title: string;
-  kind: "document" | "quiz";
-  /** id of a real stored doc to open, when kind === document. */
-  docId?: string;
-  from: string;
-  due: string | null;
-  status: "not_started" | "in_progress" | "done";
-}
-
-export const STUDENT_ASSIGNMENTS: AssignedItem[] = [
-  { id: "a1", title: "Vitals - overview (sample)", kind: "document", docId: "sample", from: "Coach Rivera", due: "Jun 30", status: "in_progress" },
-  { id: "a2", title: "Intro to ECG interpretation", kind: "document", docId: "sample", from: "Coach Rivera", due: "Jul 4", status: "not_started" },
-  { id: "a3", title: "Anatomy unit 2 quiz", kind: "quiz", from: "Coach Rivera", due: "Jul 2", status: "not_started" },
-  { id: "a4", title: "Lab safety briefing", kind: "document", docId: "sample", from: "HOSA Canada", due: null, status: "done" },
-];
-
-export interface RosterMember {
-  id: string;
-  name: string;
-  email: string;
-  assigned: number;
-  done: number;
-}
-
-export const TRAINER_ROSTER: RosterMember[] = [
-  { id: "m1", name: "Ada Okafor", email: "ada@school.ca", assigned: 4, done: 3 },
-  { id: "m2", name: "Liam Tremblay", email: "liam@school.ca", assigned: 4, done: 1 },
-  { id: "m3", name: "Priya Nair", email: "priya@school.ca", assigned: 4, done: 4 },
-  { id: "m4", name: "Marcus Bell", email: "marcus@school.ca", assigned: 3, done: 0 },
-];
-
-export interface ChapterTrainer {
-  id: string;
-  name: string;
-  members: number;
-  completion: number; // 0-100
-}
-
-export const ADVISOR_TRAINERS: ChapterTrainer[] = [
-  { id: "t1", name: "Coach Rivera", members: 12, completion: 74 },
-  { id: "t2", name: "Dr. Singh", members: 9, completion: 58 },
-  { id: "t3", name: "Ms. Lefebvre", members: 15, completion: 88 },
-];
 
 export interface AdminUser {
   id: string;

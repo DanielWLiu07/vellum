@@ -9,9 +9,14 @@
  *     ./storage). Set the R2_* env vars to make uploads durable.
  */
 
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+import { getResourceMeta } from "./resource-meta";
 import { getShare } from "./resource-share";
+import { ensureSeeded } from "./seed";
 import { backend, type UploadMeta, type UploadScope } from "./storage";
-import type { Visibility } from "./visibility";
+import type { PersonShare, Visibility } from "./visibility";
 
 export interface DocMeta {
   id: string;
@@ -26,6 +31,16 @@ export interface DocMeta {
   visibility: Visibility;
   chapter: string;
   owner: string;
+  /** Direct per-person grants (Google-Docs-style sharing). */
+  people: PersonShare[];
+  /** HOSA competitive event tag, for the event filter + "By event" sort. */
+  event?: string;
+  /** Uploader opted out of the auto page-preview thumbnail. */
+  noPreview?: boolean;
+  /** Official HOSA-created resource: badged and immutable. */
+  official?: boolean;
+  /** Folder this resource is filed in (a Folder id), or unset if unfiled. */
+  folderId?: string;
 }
 
 const BUNDLED: DocMeta[] = [
@@ -40,17 +55,20 @@ const BUNDLED: DocMeta[] = [
     visibility: "public",
     chapter: "",
     owner: "system",
+    people: [],
+    official: true,
   },
 ];
 const bundledById = new Map(BUNDLED.map((b) => [b.id, b]));
 
 function toDocMeta(u: UploadMeta): DocMeta {
   // Uploads start with whatever scope they were stored with (private by default);
-  // a later "share" is recorded in the sidecar and overrides it here.
+  // later shares/renames are recorded in the sidecar and override it here.
   const share = getShare(u.id);
+  const meta = getResourceMeta(u.id);
   return {
     id: u.id,
-    name: u.name,
+    name: share?.name ?? u.name,
     sizeBytes: u.sizeBytes,
     uploadedAt: u.uploadedAt,
     bundled: false,
@@ -58,11 +76,17 @@ function toDocMeta(u: UploadMeta): DocMeta {
     visibility: share?.visibility ?? u.visibility,
     chapter: share?.chapter ?? u.chapter,
     owner: u.owner,
+    people: share?.people ?? [],
+    event: meta?.event,
+    noPreview: meta?.noPreview,
+    official: meta?.official,
+    folderId: meta?.folderId,
   };
 }
 
 /** Bundled samples first, then uploads (newest-first from the backend). */
 export async function listDocs(): Promise<DocMeta[]> {
+  await ensureSeeded();
   const uploads = (await backend().list()).map(toDocMeta);
   return [...BUNDLED, ...uploads];
 }
@@ -93,4 +117,28 @@ export async function addUpload(
 export async function deleteDoc(id: string): Promise<boolean> {
   if (bundledById.has(id)) return false; // bundled samples are immutable
   return backend().remove(id);
+}
+
+/**
+ * Google-Docs "Make a copy": duplicate a document's bytes + metadata as a new
+ * upload owned by the caller. Copies start private (the caller shares them
+ * afterward). Works for bundled samples too — their bytes are read from
+ * /public, which is exactly what makes them copy-and-editable despite the
+ * originals being immutable.
+ */
+export async function copyDoc(id: string, owner: string, chapter: string): Promise<DocMeta | undefined> {
+  const doc = await getDoc(id);
+  if (!doc) return undefined;
+  let bytes: Uint8Array | undefined;
+  if (doc.bundled && doc.publicPath) {
+    bytes = await readFile(path.join(process.cwd(), "public", doc.publicPath)).catch(() => undefined);
+  } else {
+    bytes = await getDocBytes(id);
+  }
+  if (!bytes) return undefined;
+  return addUpload(`Copy of ${doc.name}`.slice(0, 120), bytes, doc.contentType, {
+    visibility: "private",
+    chapter,
+    owner,
+  });
 }

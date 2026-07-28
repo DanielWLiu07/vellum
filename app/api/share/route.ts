@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { getDoc } from "@/lib/store";
 import { mintToken } from "@/lib/token";
-import { DEMO_VIEWER, canView } from "@/lib/visibility";
+import { getViewer } from "@/lib/profile";
+import { canView } from "@/lib/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +15,7 @@ export const dynamic = "force-dynamic";
 // viewer URL. This is the same token flow a host app uses; the dashboard is
 // just driving it locally.
 export async function POST(req: NextRequest) {
+  await enterRequest(req);
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
   }
@@ -30,7 +33,7 @@ export async function POST(req: NextRequest) {
   const id = typeof body?.id === "string" ? body.id : "";
   const doc = await getDoc(id);
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (!canView(doc, DEMO_VIEWER)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!canView(doc, getViewer())) return NextResponse.json({ error: "not_found" }, { status: 404 }); // no existence leak
 
   const watermark = typeof body?.watermark === "string" ? body.watermark.slice(0, 120) : "";
   const ttlMinutes = Math.min(60, Math.max(1, Number(body?.ttlMinutes) || 15));
@@ -42,7 +45,7 @@ export async function POST(req: NextRequest) {
     ttlSeconds: ttlMinutes * 60,
   });
 
-  recordAudit("document.share", doc.name, clientIp(req));
+  recordAudit("document.share", doc.name);
   const frag = new URLSearchParams({ t: token });
   if (body?.mode === "slides") frag.set("mode", "slides");
   return NextResponse.json(

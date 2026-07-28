@@ -13,3 +13,9 @@ npm-debug.log*
 
 # Vendored at build time by scripts/copy-pdf-worker.mjs (predev / prebuild).
 /public/pdf.worker.min.mjs
+
+# durable local snapshots
+.data/
+
+# test coverage output
+/coverage
