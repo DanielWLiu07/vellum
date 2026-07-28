@@ -3,6 +3,8 @@
 import Link from "next/link";
 import * as React from "react";
 
+import { RETURN_TO, returnLabel, withBack } from "@/lib/return-to";
+
 const MAX_BYTES = 25 * 1024 * 1024;
 
 function formatSize(bytes: number): string {
@@ -10,7 +12,11 @@ function formatSize(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-export function UploadForm() {
+export function UploadForm({ backHref = RETURN_TO.resources }: {
+  /** Validated destination once the upload is done (see lib/return-to). */
+  backHref?: string;
+}) {
+  const backLabel = returnLabel(backHref);
   const [file, setFile] = React.useState<File | null>(null);
   const [name, setName] = React.useState("");
   const [event, setEvent] = React.useState("");
@@ -139,10 +145,13 @@ export function UploadForm() {
           )}
         </div>
         {link && <p className="upload-link">{link}</p>}
+        {/* Finishing an upload lands on the thing you just made, or on the list
+            it joined — never back on an empty form you didn't ask for. */}
         <div className="upload-actions">
-          <Link className="btn" href="/dashboard">Back to dashboard</Link>
+          <Link className="btn primary" href={withBack(`/view/${result.id}`, backHref)}>Open it</Link>
           <button type="button" className="btn" onClick={() => { setResult(null); setFile(null); setName(""); setLink(null); }}>Upload another</button>
         </div>
+        <Link className="dash-back" href={backHref}>← {backLabel}</Link>
       </div>
     );
   }
@@ -150,10 +159,7 @@ export function UploadForm() {
   return (
     <form className="upload-card" onSubmit={handleUpload}>
       <h1 className="upload-h">Upload a document</h1>
-      <p className="dash-sub">
-        Add a PDF to the shared resource pool. Please follow the{" "}
-        <Link href="/guidelines" className="upload-inline-link">content guidelines</Link>.
-      </p>
+      <p className="dash-sub">Add a PDF to the shared resource pool.</p>
 
       {file ? (
         <div className="file-card">
@@ -260,8 +266,7 @@ export function UploadForm() {
 
       <div className="upload-warning" role="note">
         <strong>Do not upload copyrighted material you don&apos;t have the right to share.</strong>{" "}
-        No textbooks, paid courses, or secured exam/competition content. See the{" "}
-        <Link href="/guidelines" className="upload-inline-link">guidelines</Link>.
+        No textbooks, paid courses, or secured exam/competition content.
       </div>
       <label className="upload-ack">
         <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />

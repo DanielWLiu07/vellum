@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 
+import { RETURN_TO, returnLabel, withBack } from "@/lib/return-to";
 import type { Visibility } from "@/lib/visibility";
 
 import { ImageField } from "./image-field";
@@ -27,7 +28,14 @@ const ready = (q: Q) => (q.prompt.trim() || q.promptImageId) && q.choices.filter
  * loads the full quiz INCLUDING the answer key via `?edit=1`, which the server
  * only serves to the owner or a granted editor.
  */
-export function QuizEditor({ editId }: { editId?: string } = {}) {
+export function QuizEditor({ editId, backHref = RETURN_TO.quizzes, selfHref }: {
+  editId?: string;
+  /** Validated destination for "Done" and for the quiz this editor creates. */
+  backHref?: string;
+  /** This editor's own URL, handed to preview links so they come back here. */
+  selfHref?: string;
+} = {}) {
+  const backLabel = returnLabel(backHref);
   const [title, setTitle] = React.useState("");
   const [questions, setQuestions] = React.useState<Q[]>([blankQ()]);
   const [visibility, setVisibility] = React.useState<Visibility>("private");
@@ -151,7 +159,9 @@ export function QuizEditor({ editId }: { editId?: string } = {}) {
         return;
       }
       const doc = await res.json();
-      router.push(`/quizzes/${doc.id}/edit`);
+      // Into the new quiz's editor, still carrying the list this flow started
+      // from — "Done" in there returns to it rather than to a blank form.
+      router.push(withBack(`/quizzes/${doc.id}/edit`, backHref));
     } finally {
       setBusy(false);
     }
@@ -165,7 +175,7 @@ export function QuizEditor({ editId }: { editId?: string } = {}) {
       <div className="upload-card">
         <h1 className="upload-h">Can&apos;t edit this quiz</h1>
         <p className="dash-sub">It doesn&apos;t exist, or you don&apos;t have editor access. Ask the owner to add you as an editor, or make a copy instead.</p>
-        <div className="upload-actions"><Link className="btn" href="/dashboard">Back to dashboard</Link></div>
+        <div className="upload-actions"><Link className="btn" href={backHref}>← {backLabel}</Link></div>
       </div>
     );
   }
@@ -294,9 +304,9 @@ export function QuizEditor({ editId }: { editId?: string } = {}) {
 
       {error && <p className="upload-error" role="alert">{error}</p>}
       <div className="upload-actions">
-        <Link className="cta" href={`/quizzes/${editId}`}>Take it</Link>
-        {examOn && <Link className="btn" href={`/quizzes/${editId}/attempts`}>Review attempts</Link>}
-        <Link className="btn" href="/dashboard">Done</Link>
+        <Link className="cta" href={withBack(`/quizzes/${editId}`, selfHref ?? backHref)}>Take it</Link>
+        {examOn && <Link className="btn" href={withBack(`/quizzes/${editId}/attempts`, selfHref ?? backHref)}>Review attempts</Link>}
+        <Link className="btn" href={backHref}>Done · {backLabel}</Link>
         <SaveStatusChip status={status} />
         <span className="dash-sub" style={{ marginLeft: "auto", fontSize: 13 }}>{count} question{count === 1 ? "" : "s"}</span>
       </div>

@@ -4,13 +4,19 @@ import Link from "next/link";
 import * as React from "react";
 
 import type { Deck } from "@/lib/decks";
+import { RETURN_TO, returnLabel } from "@/lib/return-to";
 
 // Self-grading study session (Anki-style). You flip a card, judge whether you
 // knew it, and "Missed it" cards cycle back to the end of the queue until every
 // card has been cleared once, then a completion summary. "Got it" retires the
 // card for the session. This is what turns a flip-through into actual studying;
 // the old linear browse is kept as a "Just browse" toggle.
-export function DeckStudy({ deckId }: { deckId: string }) {
+export function DeckStudy({ deckId, backHref = RETURN_TO.flashcards }: {
+  deckId: string;
+  /** Validated destination for every way out of the session (lib/return-to). */
+  backHref?: string;
+}) {
+  const backLabel = returnLabel(backHref);
   const [deck, setDeck] = React.useState<Deck | null>(null);
   const [err, setErr] = React.useState(false);
 
@@ -112,13 +118,19 @@ export function DeckStudy({ deckId }: { deckId: string }) {
   }, [browse, flipped, done, grade, browseNext, browsePrev]);
 
   if (err) {
-    return <div className="upload-card"><p className="dash-sub">Deck not found.</p><Link className="btn" href="/dashboard">Back to dashboard</Link></div>;
+    return <div className="upload-card"><p className="dash-sub">Deck not found.</p><Link className="btn" href={backHref}>← {backLabel}</Link></div>;
   }
   if (!deck) {
     return <div className="upload-card"><p className="dash-sub">Loading...</p></div>;
   }
   if (deck.cards.length === 0) {
-    return <div className="upload-card"><h1 className="upload-h">{deck.title}</h1><p className="dash-sub">This deck has no cards yet.</p></div>;
+    return (
+      <div className="upload-card">
+        <h1 className="upload-h">{deck.title}</h1>
+        <p className="dash-sub">This deck has no cards yet.</p>
+        <Link className="dash-back" href={backHref}>← {backLabel}</Link>
+      </div>
+    );
   }
 
   // ---- Completion summary --------------------------------------------------
@@ -135,10 +147,13 @@ export function DeckStudy({ deckId }: { deckId: string }) {
           </p>
           <div className="study-controls">
             <button type="button" className="btn" onClick={() => start(deck.cards, false)}>Study again</button>
-            <button type="button" className="btn primary" onClick={() => start(deck.cards, true)}>Shuffle &amp; restart</button>
+            <button type="button" className="btn" onClick={() => start(deck.cards, true)}>Shuffle &amp; restart</button>
+            {/* The default action once the deck is cleared: back to the list
+                you started from, not another lap. */}
+            <Link className="btn primary" href={backHref}>Done · {backLabel}</Link>
           </div>
         </div>
-        <Link className="dash-back" href="/dashboard">← Back to dashboard</Link>
+        <Link className="dash-back" href={backHref}>← {backLabel}</Link>
       </div>
     );
   }
@@ -201,7 +216,7 @@ export function DeckStudy({ deckId }: { deckId: string }) {
         >
           {browse ? "← Back to study mode" : "Just browse (no grading)"}
         </button>
-        <Link className="dash-back" href="/dashboard">← Back to dashboard</Link>
+        <Link className="dash-back" href={backHref}>← {backLabel}</Link>
       </div>
     </div>
   );

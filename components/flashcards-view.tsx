@@ -4,14 +4,19 @@ import Link from "next/link";
 import * as React from "react";
 
 import type { DeckMeta } from "@/lib/decks";
+import { withBack } from "@/lib/return-to";
 import { DEMO_VIEWER, canEdit, canManageSharing } from "@/lib/visibility";
 
 import { FavoriteButton } from "./favorite-button";
 import { ShareDialog, type ShareTarget } from "./share-dialog";
+import { useDashboardReturn } from "./use-return-to";
 
 const VIS_LABEL = { public: "Public", chapter: "Chapter", private: "Private" } as const;
 
 export function FlashcardsView() {
+  // Study and edit links carry the way back to this list (role + section), so
+  // clearing a deck returns here.
+  const backHref = useDashboardReturn("flashcards");
   const [decks, setDecks] = React.useState<DeckMeta[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [busyId, setBusyId] = React.useState<string | null>(null);
@@ -63,7 +68,7 @@ export function FlashcardsView() {
     <section className="role-section">
       <div className="section-head">
         <h2>Flashcards</h2>
-        <Link className="cta" href="/upload?type=flashcards">+ Create flashcards</Link>
+        <Link className="cta" href={withBack("/upload?type=flashcards", backHref)}>+ Create flashcards</Link>
       </div>
       <p className="dash-sub" style={{ marginTop: -4, marginBottom: 12 }}>
         Study decks with Google-Docs-style sharing: make a copy of anything you can see,
@@ -99,8 +104,8 @@ export function FlashcardsView() {
                   </p>
                 </div>
                 <div className="tile-actions">
-                  <Link className="btn primary" href={`/decks/${d.id}`}>Study</Link>
-                  {editable && <Link className="btn" href={`/decks/${d.id}/edit`}>Edit</Link>}
+                  <Link className="btn primary" href={withBack(`/decks/${d.id}`, backHref)}>Study</Link>
+                  {editable && <Link className="btn" href={withBack(`/decks/${d.id}/edit`, backHref)}>Edit</Link>}
                   <button type="button" className="btn" disabled={busyId === d.id} onClick={() => copy(d)}>Make a copy</button>
                   {canShare && (
                     <button

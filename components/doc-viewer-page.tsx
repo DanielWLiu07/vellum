@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { PdfViewer } from "@/components/pdf-viewer";
+import { returnLabel, withBack } from "@/lib/return-to";
 
 interface DocMeta {
   id: string;
@@ -59,6 +60,7 @@ export function DocViewerPage({
   const [state, setState] = useState<State>({ kind: "loading" });
   const [copying, setCopying] = useState(false);
   const router = useRouter();
+  const backLabel = returnLabel(backHref);
 
   // Google-Docs "Make a copy" from inside the viewer: clone, then open the
   // copy (it's private and yours — the back link still returns to the same
@@ -70,7 +72,7 @@ export function DocViewerPage({
     setCopying(false);
     if (res?.ok) {
       const j = await res.json().catch(() => null);
-      if (j?.id) router.push(`/view/${j.id}?back=${encodeURIComponent(backHref)}`);
+      if (j?.id) router.push(withBack(`/view/${j.id}`, backHref));
     }
   }
 
@@ -172,7 +174,7 @@ export function DocViewerPage({
               {copying ? "Copying..." : "Make a copy"}
             </button>
           )}
-          <Link href={backHref} className="dash-back">Dashboard</Link>
+          <Link href={backHref} className="dash-back">← {backLabel}</Link>
         </span>
       </nav>
 
@@ -183,7 +185,7 @@ export function DocViewerPage({
         <div className="viewer-page-status">
           <p>{state.message}</p>
           <p>
-            <Link className="btn" href={backHref}>Back to dashboard</Link>
+            <Link className="btn" href={backHref}>← {backLabel}</Link>
           </p>
         </div>
       )}

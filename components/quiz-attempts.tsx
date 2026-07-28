@@ -3,6 +3,8 @@
 import Link from "next/link";
 import * as React from "react";
 
+import { RETURN_TO, returnLabel } from "@/lib/return-to";
+
 type IntegrityKind = "hidden" | "blur" | "fullscreen-exit" | "copy" | "paste" | "contextmenu";
 type IntegrityFlag = { kind: IntegrityKind; at: number };
 type Attempt = {
@@ -46,7 +48,12 @@ function when(ms: number): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
-export function QuizAttempts({ quizId }: { quizId: string }) {
+export function QuizAttempts({ quizId, backHref = RETURN_TO.quizzes }: {
+  quizId: string;
+  /** Validated destination for the way out (see lib/return-to). */
+  backHref?: string;
+}) {
+  const backLabel = returnLabel(backHref);
   const [attempts, setAttempts] = React.useState<Attempt[] | null>(null);
   const [denied, setDenied] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
@@ -99,7 +106,7 @@ export function QuizAttempts({ quizId }: { quizId: string }) {
       <div className="upload-card">
         <h1 className="upload-h">Attempts unavailable</h1>
         <p className="dash-sub">This quiz doesn&apos;t exist, or you&apos;re not its owner. Only the owner or an admin can review exam attempts.</p>
-        <Link className="btn" href="/dashboard">Back to dashboard</Link>
+        <Link className="btn" href={backHref}>← {backLabel}</Link>
       </div>
     );
   }
@@ -160,7 +167,7 @@ export function QuizAttempts({ quizId }: { quizId: string }) {
           })}
         </div>
       )}
-      <Link className="dash-back" href="/dashboard">← Back to dashboard</Link>
+      <Link className="dash-back" href={backHref}>← {backLabel}</Link>
     </div>
   );
 }

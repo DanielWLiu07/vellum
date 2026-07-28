@@ -4,14 +4,20 @@ import Link from "next/link";
 import * as React from "react";
 
 import type { QuizMeta } from "@/lib/quizzes";
+import { withBack } from "@/lib/return-to";
 import { DEMO_VIEWER, canEdit, canManageSharing } from "@/lib/visibility";
 
 import { FavoriteButton } from "./favorite-button";
 import { ShareDialog, type ShareTarget } from "./share-dialog";
+import { useDashboardReturn } from "./use-return-to";
 
 const VIS_LABEL = { public: "Public", chapter: "Chapter", private: "Private" } as const;
 
 export function QuizzesView() {
+  // Everything this list opens carries the way back to it (role + section
+  // included), so finishing a quiz returns here instead of the dashboard's
+  // default landing section.
+  const backHref = useDashboardReturn("quizzes");
   const [quizzes, setQuizzes] = React.useState<QuizMeta[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [busyId, setBusyId] = React.useState<string | null>(null);
@@ -62,7 +68,7 @@ export function QuizzesView() {
     <section className="role-section">
       <div className="section-head">
         <h2>Quizzes</h2>
-        <Link className="cta" href="/upload?type=quiz">+ Create quiz</Link>
+        <Link className="cta" href={withBack("/upload?type=quiz", backHref)}>+ Create quiz</Link>
       </div>
       <p className="dash-sub" style={{ marginTop: -4, marginBottom: 12 }}>
         Self-test quizzes with Google-Docs-style sharing: copy anything you can see, edit
@@ -103,9 +109,9 @@ export function QuizzesView() {
                   </p>
                 </div>
                 <div className="tile-actions">
-                  <Link className="btn primary" href={`/quizzes/${q.id}`}>Take</Link>
-                  {editable && <Link className="btn" href={`/quizzes/${q.id}/edit`}>Edit</Link>}
-                  {mine && q.isExam && <Link className="btn" href={`/quizzes/${q.id}/attempts`}>Attempts</Link>}
+                  <Link className="btn primary" href={withBack(`/quizzes/${q.id}`, backHref)}>Take</Link>
+                  {editable && <Link className="btn" href={withBack(`/quizzes/${q.id}/edit`, backHref)}>Edit</Link>}
+                  {mine && q.isExam && <Link className="btn" href={withBack(`/quizzes/${q.id}/attempts`, backHref)}>Attempts</Link>}
                   <button type="button" className="btn" disabled={busyId === q.id} onClick={() => copy(q)}>Make a copy</button>
                   {canShare && (
                     <button

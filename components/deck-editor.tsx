@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import * as React from "react";
 
 import { parseCards } from "@/lib/parse-cards";
+import { RETURN_TO, returnLabel, withBack } from "@/lib/return-to";
 import type { Visibility } from "@/lib/visibility";
 
 import { ImageField } from "./image-field";
@@ -26,7 +27,14 @@ const hasContent = (r: Row) => Boolean(r.front.trim() || r.back.trim() || r.fron
  * (Google-Docs-style direct editing; the server allows it for the owner or a
  * granted editor).
  */
-export function DeckEditor({ editId }: { editId?: string } = {}) {
+export function DeckEditor({ editId, backHref = RETURN_TO.flashcards, selfHref }: {
+  editId?: string;
+  /** Validated destination for "Done" and for the deck this editor creates. */
+  backHref?: string;
+  /** This editor's own URL, handed to the study link so it comes back here. */
+  selfHref?: string;
+} = {}) {
+  const backLabel = returnLabel(backHref);
   const router = useRouter();
   const [title, setTitle] = React.useState("");
   const [rows, setRows] = React.useState<Row[]>([blank(), blank()]);
@@ -144,7 +152,9 @@ export function DeckEditor({ editId }: { editId?: string } = {}) {
         return;
       }
       const doc = await res.json();
-      router.push(`/decks/${doc.id}/edit`);
+      // Into the new deck's editor, still carrying the list this flow started
+      // from — "Done" in there returns to it rather than to a blank form.
+      router.push(withBack(`/decks/${doc.id}/edit`, backHref));
     } finally {
       setBusy(false);
     }
@@ -158,7 +168,7 @@ export function DeckEditor({ editId }: { editId?: string } = {}) {
       <div className="upload-card">
         <h1 className="upload-h">Can&apos;t edit this deck</h1>
         <p className="dash-sub">It doesn&apos;t exist, or you don&apos;t have editor access. Ask the owner to add you as an editor, or make a copy instead.</p>
-        <div className="upload-actions"><Link className="btn" href="/dashboard">Back to dashboard</Link></div>
+        <div className="upload-actions"><Link className="btn" href={backHref}>← {backLabel}</Link></div>
       </div>
     );
   }
@@ -194,8 +204,7 @@ export function DeckEditor({ editId }: { editId?: string } = {}) {
       </div>
       <p className="dash-sub">
         Add cards by hand with an image on any face, or paste from Quizlet / Anki / CSV. Changes
-        save automatically - follow the{" "}
-        <Link href="/guidelines" className="upload-inline-link">guidelines</Link>.
+        save automatically.
       </p>
 
       <label className="dash-field"><span>Deck title</span>
@@ -240,8 +249,8 @@ export function DeckEditor({ editId }: { editId?: string } = {}) {
 
       {error && <p className="upload-error" role="alert">{error}</p>}
       <div className="upload-actions">
-        <Link className="cta" href={`/decks/${editId}`}>Study it</Link>
-        <Link className="btn" href="/dashboard">Done</Link>
+        <Link className="cta" href={withBack(`/decks/${editId}`, selfHref ?? backHref)}>Study it</Link>
+        <Link className="btn" href={backHref}>Done · {backLabel}</Link>
         <SaveStatusChip status={status} />
         <span className="dash-sub" style={{ marginLeft: "auto", fontSize: 13 }}>{count} card{count === 1 ? "" : "s"}</span>
       </div>

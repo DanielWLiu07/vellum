@@ -2,13 +2,22 @@
 
 import * as React from "react";
 
+import { RETURN_TO } from "@/lib/return-to";
+
 import { DeckEditor } from "./deck-editor";
 import { QuizEditor } from "./quiz-editor";
 import { UploadForm } from "./upload-form";
 
 type ContentType = "document" | "flashcards" | "quiz";
 
-export function CreateContent() {
+/** Where each kind of new content lives, so finishing lands on its own list. */
+const RETURN_BY_TYPE: Record<ContentType, string> = {
+  document: RETURN_TO.resources,
+  flashcards: RETURN_TO.flashcards,
+  quiz: RETURN_TO.quizzes,
+};
+
+export function CreateContent({ backHref }: { backHref?: string | null }) {
   const [type, setType] = React.useState<ContentType>("document");
 
   // Allow ?type=flashcards|quiz to preselect the tab (e.g. from the dashboard).
@@ -52,7 +61,11 @@ export function CreateContent() {
           Quiz <span className="type-tab-sub">multiple choice</span>
         </button>
       </div>
-      {type === "document" ? <UploadForm /> : type === "flashcards" ? <DeckEditor /> : <QuizEditor />}
+      {type === "document"
+        ? <UploadForm backHref={backHref ?? RETURN_BY_TYPE.document} />
+        : type === "flashcards"
+          ? <DeckEditor backHref={backHref ?? RETURN_BY_TYPE.flashcards} />
+          : <QuizEditor backHref={backHref ?? RETURN_BY_TYPE.quiz} />}
     </div>
   );
 }

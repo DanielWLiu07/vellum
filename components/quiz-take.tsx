@@ -3,6 +3,8 @@
 import Link from "next/link";
 import * as React from "react";
 
+import { RETURN_TO, returnLabel } from "@/lib/return-to";
+
 type Choice = { text: string; imageId?: string };
 type TakerQuestion = { prompt: string; choices: Choice[]; promptImageId?: string };
 type ExamSettings = { timeLimitSec: number };
@@ -26,7 +28,12 @@ function fmtClock(sec: number): string {
   return `${m}:${String(r).padStart(2, "0")}`;
 }
 
-export function QuizTake({ quizId }: { quizId: string }) {
+export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
+  quizId: string;
+  /** Validated destination for every way out of the quiz (see lib/return-to). */
+  backHref?: string;
+}) {
+  const backLabel = returnLabel(backHref);
   const [quiz, setQuiz] = React.useState<TakerQuiz | null>(null);
   const [err, setErr] = React.useState(false);
   const [answers, setAnswers] = React.useState<number[]>([]);
@@ -189,7 +196,7 @@ export function QuizTake({ quizId }: { quizId: string }) {
     setSheetOpen(false);
   }
 
-  if (err) return <div className="upload-card"><p className="dash-sub">Quiz not found.</p><Link className="btn" href="/dashboard">Back to dashboard</Link></div>;
+  if (err) return <div className="upload-card"><p className="dash-sub">Quiz not found.</p><Link className="btn" href={backHref}>← {backLabel}</Link></div>;
   if (!quiz) return <div className="upload-card"><p className="dash-sub">Loading...</p></div>;
 
   // Exam pre-start gate: instructions + integrity notice, then the taker starts
@@ -211,7 +218,7 @@ export function QuizTake({ quizId }: { quizId: string }) {
           </ul>
           <button type="button" className="cta" onClick={startExam}>Start exam</button>
         </div>
-        <Link className="dash-back" href="/dashboard">← Back to dashboard</Link>
+        <Link className="dash-back" href={backHref}>← {backLabel}</Link>
       </div>
     );
   }
@@ -327,7 +334,9 @@ export function QuizTake({ quizId }: { quizId: string }) {
         {result ? (
           <>
             {!isExam && <button type="button" className="btn" onClick={retry}>Try again</button>}
-            <Link className="btn primary" href="/dashboard">Done</Link>
+            {/* Finishing means finishing: back to wherever this quiz was opened
+                from, not the dashboard's default landing section. */}
+            <Link className="btn primary" href={backHref}>Done · {backLabel}</Link>
           </>
         ) : isExam ? (
           <button type="button" className="cta" disabled={busy} onClick={() => submit(false)}>
@@ -340,7 +349,7 @@ export function QuizTake({ quizId }: { quizId: string }) {
         )}
       </div>
 
-      <Link className="dash-back" href="/dashboard">← Back to dashboard</Link>
+      <Link className="dash-back" href={backHref}>← {backLabel}</Link>
     </div>
   );
 }

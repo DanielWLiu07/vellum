@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { DocViewerPage } from "@/components/doc-viewer-page";
+import { RETURN_TO, resolveReturn } from "@/lib/return-to";
 
 export const metadata: Metadata = {
   title: "HOSA Vitals - document viewer",
@@ -21,12 +22,10 @@ export default async function ViewPage({
 }) {
   const { id } = await params;
   const sp = await searchParams;
-  // Only same-app dashboard targets — a crafted ?back can't turn the viewer
-  // into an open redirect.
-  const back =
-    typeof sp.back === "string" && sp.back.startsWith("/dashboard")
-      ? sp.back
-      : "/dashboard";
+  // Only same-app targets, rebuilt from validated pieces — a crafted ?back
+  // can't turn the viewer into an open redirect. The check now lives in
+  // lib/return-to, shared with every other flow.
+  const back = resolveReturn(sp.back, RETURN_TO.dashboard);
   const mode = sp.mode === "slides" ? "slides" : undefined;
   return <DocViewerPage id={id} backHref={back} initialMode={mode} />;
 }
