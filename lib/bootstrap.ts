@@ -5,6 +5,7 @@
  * store's snapshot exactly once per process.
  */
 
+import "./assignments";
 import "./audit";
 import "./comments";
 import "./decks";
@@ -18,5 +19,6 @@ import "./quizzes";
 import "./resource-meta";
 import "./resource-share";
 import "./thumbnails";
+import "./users";
 
 export { ensureReady } from "./durable";
