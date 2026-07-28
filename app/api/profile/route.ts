@@ -37,21 +37,35 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
   const b = body as Record<string, unknown>;
+  // A member's chapter comes from their HOSA account, carried in the signed
+  // session. Accepting one here let someone type their way into another
+  // chapter's assignments and roster. We REJECT rather than quietly drop it:
+  // silently 200-ing a chapter change the server didn't make is a lie the
+  // client would render as success.
+  if (b.chapter !== undefined) {
+    return NextResponse.json({ error: "chapter_not_editable" }, { status: 400 });
+  }
   const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   const patch = {
     displayName: str(b.displayName),
     handle: str(b.handle),
     bio: str(b.bio),
-    chapter: str(b.chapter),
-    role: str(b.role),
+    // `role` is deliberately NOT accepted either. With no session getViewer()
+    // derives `admin` from the local profile, so honouring a role patch let any
+    // signed-out visitor grant themselves admin (audit log, delete/edit on any
+    // doc, official-content locks) straight from the profile form. Role comes
+    // from the signed HOSA session only. Unlike chapter it is dropped rather
+    // than rejected, to stay compatible with clients that echo the whole
+    // profile back on save.
     // null clears the avatar; a string sets it; undefined leaves it untouched.
     avatarImageId: b.avatarImageId === null ? null : str(b.avatarImageId),
   };
 
-  // Moderate ALL the free text the user typed (name, bio, handle, chapter) -
-  // each is rendered in the UI. Avatar images are moderated at upload time by
-  // /api/images, so we don't re-check them here.
-  const text = [patch.displayName, patch.bio, patch.handle, patch.chapter].filter(Boolean).join("\n").trim();
+  // Moderate ALL the free text the user typed (name, bio, handle) - each is
+  // rendered in the UI. Chapter is no longer among them: it isn't typed, it
+  // comes from the signed session. Avatar images are moderated at upload time
+  // by /api/images, so we don't re-check them here.
+  const text = [patch.displayName, patch.bio, patch.handle].filter(Boolean).join("\n").trim();
   if (text) {
     const mod = await moderateText(text);
     if (!mod.allowed) {

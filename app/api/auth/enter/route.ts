@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
 import { readIdentity, SESSION_COOKIE } from "@/lib/auth";
 import { ensureReady } from "@/lib/bootstrap";
+import { rememberUser } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "invalid_token" }, { status: 401 });
   }
   await ensureReady();
+  // Entering is how Vitals learns a member exists - this is what puts them on
+  // their chapter's roster so a trainer can assign them work.
+  rememberUser(id);
   recordAudit("auth.signin", id.name || id.sub, undefined, id.sub);
   const res = NextResponse.redirect(new URL("/dashboard", req.nextUrl.origin));
   res.cookies.set(SESSION_COOKIE, token!, {

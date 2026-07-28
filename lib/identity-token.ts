@@ -26,8 +26,19 @@ export interface Identity {
   sub: string;
   /** Display name. */
   name: string;
-  /** Chapter, for chapter-scoped visibility. */
+  /**
+   * Chapter IDENTITY - the host app's chapter id. This is the grouping and
+   * scoping key: it's compared against stored values, so it must stay an id.
+   * Never render it; it's a cuid. Use `chapterName` for display.
+   */
   chapter: string;
+  /**
+   * Chapter DISPLAY name ("Toronto Central"). Optional: tokens minted before
+   * this field existed don't carry it, and they must keep working for their
+   * full 8h life - so every reader treats it as `chapterName || chapter` and
+   * verification never requires it.
+   */
+  chapterName?: string;
   /** Role; "admin" grants admin in Vitals. */
   role: MemberRole;
   /** Expiry (unix seconds). */
@@ -52,7 +63,10 @@ function sign(input: string, secret: string): string {
 export interface MintIdentityOptions {
   sub: string;
   name?: string;
+  /** Chapter id (grouping key). */
   chapter?: string;
+  /** Chapter display name. Omitted when unknown; readers fall back to `chapter`. */
+  chapterName?: string;
   role?: MemberRole;
   /** Seconds until expiry. Clamped to [60, 86400]. Default 8h. */
   ttlSeconds?: number;
@@ -76,6 +90,10 @@ export function mintIdentityToken(secret: string, opts: MintIdentityOptions): st
     exp: now + ttl,
     iat: now,
   };
+  // Only present when we actually have a name, so a token without a resolvable
+  // chapter name is byte-identical to a pre-`chapterName` one.
+  const chapterName = (opts.chapterName ?? "").slice(0, 80);
+  if (chapterName) identity.chapterName = chapterName;
   const payload = b64urlEncode(Buffer.from(JSON.stringify(identity), "utf8"));
   const input = `${IDENTITY_VERSION}.${payload}`;
   return `${input}.${sign(input, secret)}`;
@@ -115,6 +133,12 @@ export function verifyIdentityToken(secret: string, token: unknown, now?: number
     !ROLES.includes(identity.role)
   ) {
     return { ok: false, reason: "malformed" };
+  }
+  // `chapterName` is deliberately NOT required: a token minted before the field
+  // existed is still valid for its full life. Drop a non-string one so
+  // consumers can trust the type without re-checking.
+  if (typeof identity.chapterName !== "string" || !identity.chapterName) {
+    delete identity.chapterName;
   }
   const nowSec = now ?? Math.floor(Date.now() / 1000);
   if (nowSec >= identity.exp) return { ok: false, reason: "expired" };

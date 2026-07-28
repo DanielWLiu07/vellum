@@ -12,7 +12,8 @@ import type { NextRequest } from "next/server";
 
 import { ensureReady } from "./bootstrap";
 import { type Identity, verifyIdentityToken } from "./identity-token";
-import { setRequestSession } from "./request-context";
+import { getRequestSession, setRequestSession } from "./request-context";
+import { rememberUser } from "./users";
 import type { Viewer } from "./visibility";
 
 export const SESSION_COOKIE = "vitals_session";
@@ -53,8 +54,15 @@ export function resolveViewer(req: NextRequest): void {
  * Per-request entry point for API routes: resolve the authenticated viewer,
  * then hydrate the durable stores. Call this first in every route that reads or
  * writes scoped data.
+ *
+ * Recording the member afterwards is how Vitals builds its roster (lib/users):
+ * it has no user list of its own, so everyone it can assign work to is someone
+ * it has seen arrive with a verified identity. The write is a no-op refresh
+ * once nothing about the signed identity has changed.
  */
 export async function enterRequest(req: NextRequest): Promise<void> {
   resolveViewer(req);
-  await ensureReady();
+  await ensureReady(); // hydrate first: rememberUser writes to a durable store
+  const session = getRequestSession();
+  if (session) rememberUser(session.identity);
 }

@@ -5,10 +5,12 @@
  * (name/chapter/role). The identity KEY (owner) is stable; it owns every
  * resource that member creates.
  *
- * Note: for a signed-in member, getViewer() takes chapter/role from the SIGNED
- * session, not the editable profile - so editing "role" in the profile is
- * cosmetic and can't self-escalate. Only the local demo "you" (no session)
- * derives its viewer from the profile.
+ * Chapter and role are HOSA's to set, not the member's: both come from the
+ * SIGNED session, neither is patchable, and profileFor() overlays the current
+ * signed values so what's stored can never outrank what HOSA says. That's what
+ * keeps a member from typing their way into another chapter's assignments and
+ * roster, or into a role that grants admin. Only the local demo "you" (no
+ * session) derives its viewer from the profile.
  */
 
 import type { Role } from "./demo-data";
@@ -50,13 +52,27 @@ function seedFor(owner: string): Profile {
     handle: "",
     bio: "",
     chapter: id?.chapter ?? (owner === OWNER_KEY ? "Toronto Central" : ""),
+    // The local demo has no id/name split - its `chapter` is already a display
+    // string, and `chapterName || chapter` lands on it.
+    chapterName: id?.chapterName ?? "",
     role: (id?.role as Role) ?? "student",
     updatedAt: 0,
   };
 }
 
 function profileFor(owner: string): Profile {
-  return store.get(owner) ?? seedFor(owner);
+  const stored = store.get(owner);
+  if (!stored) return seedFor(owner);
+  // A stored chapter/role is only a snapshot of what the member's token said
+  // the last time they saved. Overlay the CURRENT signed values so a stale (or
+  // historically self-typed) record can never be displayed as their chapter.
+  // Saving then writes the overlaid values back, healing the record.
+  const s = getRequestSession();
+  const id = s && s.identity.sub === owner ? s.identity : null;
+  // `?? ""` covers records snapshotted before chapterName existed.
+  return id
+    ? { ...stored, chapter: id.chapter, chapterName: id.chapterName ?? "", role: id.role }
+    : { ...stored, chapterName: stored.chapterName ?? "" };
 }
 
 /** A copy of the current viewer's profile (callers must not mutate the store). */
@@ -81,8 +97,17 @@ export function updateProfile(patch: ProfilePatch): Profile {
   }
   if (patch.handle !== undefined) next.handle = cleanHandle(patch.handle);
   if (patch.bio !== undefined) next.bio = patch.bio.trim().slice(0, PROFILE_LIMITS.bio);
-  if (patch.chapter !== undefined) next.chapter = patch.chapter.trim().slice(0, PROFILE_LIMITS.chapter);
-  if (patch.role !== undefined && ROLE_VALUES.includes(patch.role as Role)) next.role = patch.role as Role;
+  // `chapter` is intentionally NOT patchable either. A member's chapter is set
+  // on their HOSA account and carried in the signed session's `chapter` claim;
+  // it decides which chapter's assignments and roster they belong to, so a
+  // client-supplied chapter was a way to type yourself into another chapter and
+  // receive its work. It comes from the session (seeded by seedFor, kept
+  // current by the overlay in profileFor) and from nowhere else.
+  // `role` is intentionally NOT patchable. getViewer() derives `admin` from
+  // this profile when there is no session, so accepting a client-supplied role
+  // was a self-escalation path for signed-out visitors. A member's role comes
+  // from their signed session and is written only by seedFromSession below.
+  void ROLE_VALUES;
   if (patch.avatarImageId !== undefined) {
     next.avatarImageId = patch.avatarImageId ? patch.avatarImageId.slice(0, 64) : undefined;
   }

@@ -11,6 +11,9 @@ export function ProfileForm() {
   const [displayName, setDisplayName] = React.useState("");
   const [handle, setHandle] = React.useState("");
   const [bio, setBio] = React.useState("");
+  // Both display-only: chapter and role come from the signed HOSA session. The
+  // server rejects a patch carrying a chapter and ignores one carrying a role
+  // (see app/api/profile/route.ts), so these are only ever rendered.
   const [chapter, setChapter] = React.useState("");
   const [role, setRole] = React.useState<Role>("student");
   const [avatarImageId, setAvatarImageId] = React.useState<string | undefined>();
@@ -31,7 +34,9 @@ export function ProfileForm() {
         setDisplayName(p.displayName === "You" ? "" : p.displayName);
         setHandle(p.handle);
         setBio(p.bio);
-        setChapter(p.chapter);
+        // `chapter` is the host app's chapter id (a cuid) - never show it when
+        // there's a display name for it.
+        setChapter(p.chapterName || p.chapter);
         setRole(p.role);
         setAvatarImageId(p.avatarImageId);
       })
@@ -73,7 +78,9 @@ export function ProfileForm() {
       const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName, handle, bio, chapter, role, avatarImageId: avatarImageId ?? null }),
+        // No chapter: it isn't ours to send, and the API rejects a patch that
+        // carries one (see app/api/profile/route.ts).
+        body: JSON.stringify({ displayName, handle, bio, avatarImageId: avatarImageId ?? null }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -146,12 +153,24 @@ export function ProfileForm() {
             <textarea value={bio} maxLength={PROFILE_LIMITS.bio} rows={3} onChange={(e) => setBio(e.target.value)} placeholder="A line about you - your interests, your competitive events." /></label>
 
           <div className="profile-grid">
-            <label className="dash-field"><span>Chapter</span>
-              <input value={chapter} maxLength={PROFILE_LIMITS.chapter} onChange={(e) => setChapter(e.target.value)} placeholder="e.g. Toronto Central" /></label>
-            <label className="dash-field"><span>Role</span>
-              <select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-                {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-              </select></label>
+            {/* Chapter and role are both read-only: they come from the signed
+                HOSA session. Chapter decides which chapter's assignments and
+                roster you're part of, so it's changed on the member platform,
+                never typed here. */}
+            <div className="dash-field"><span>Chapter</span>
+              {chapter.trim() ? (
+                <p className="profile-readonly">{chapter.trim()}</p>
+              ) : (
+                <p className="profile-readonly">No chapter yet</p>
+              )}
+              <span className="profile-field-note">
+                {chapter.trim()
+                  ? "From your HOSA account. To move chapters, change it there."
+                  : "Your HOSA account doesn't have a chapter set yet. Add one there and it will appear here."}
+              </span></div>
+            <div className="dash-field"><span>Role</span>
+              <p className="profile-readonly">{roleLabel}</p>
+              <span className="profile-field-note">Set by HOSA Canada.</span></div>
           </div>
         </div>
 
