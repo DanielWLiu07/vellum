@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { __resetProfile, getProfile, getViewer, updateProfile } from "./profile";
+import { __resetProfile, getProfile, getViewer, type ProfilePatch, updateProfile } from "./profile";
 import { setRequestSession } from "./request-context";
 
 beforeEach(() => __resetProfile());
@@ -9,8 +9,13 @@ describe("getViewer session-awareness", () => {
   it("falls back to the local demo profile when there is no session", () => {
     // No session set -> the standalone demo identity ("you").
     expect(getViewer()).toEqual({ owner: "you", chapter: "Toronto Central", admin: false });
-    updateProfile({ chapter: "Elsewhere", role: "admin" });
-    expect(getViewer()).toEqual({ owner: "you", chapter: "Elsewhere", admin: true });
+    // And it stays that way: this fallback viewer is exactly the one a
+    // signed-out visitor gets, so neither chapter nor role may be patchable
+    // here. The cast is what an attacker's request body looks like once it
+    // reaches the store - ProfilePatch itself has no chapter.
+    updateProfile({ displayName: "Rogue", chapter: "Elsewhere", role: "admin" } as ProfilePatch);
+    expect(getViewer()).toEqual({ owner: "you", chapter: "Toronto Central", admin: false });
+    expect(getProfile().displayName).toBe("Rogue"); // the legitimate part landed
   });
 
   it("uses the authenticated HOSA member when a session is present", () => {

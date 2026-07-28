@@ -14,24 +14,36 @@ vi.mock("@/lib/moderation", () => ({
 vi.mock("@/lib/audit", () => ({ recordAudit: vi.fn() }));
 
 import { DELETE, GET, POST } from "./route";
+import { SESSION_COOKIE } from "@/lib/auth";
 import { __resetComments, addComment } from "@/lib/comments";
+import { mintIdentityToken } from "@/lib/identity-token";
 import { __resetModules, createModule } from "@/lib/modules";
-import { __resetProfile, updateProfile } from "@/lib/profile";
+import { __resetProfile } from "@/lib/profile";
 import { __resetRateLimit } from "@/lib/rate-limit";
 
 const ALLOWED = { allowed: true, flagged: false, categories: [], checked: true };
 const FLAGGED = { allowed: false, flagged: true, categories: ["hate"], checked: true };
 
+// Admin comes from the signed session, never from the local profile (role isn't
+// patchable — that was a self-escalation path). MEMBER keeps the "you" owner key
+// the standalone demo profile uses, so a comment they post is authored by "you".
+const SECRET = "shared-secret-at-least-16-chars";
+const MEMBER = { sub: "you", name: "You", chapter: "Toronto Central", role: "student" } as const;
+const ADMIN = { sub: "admin_1", name: "Daniel Liu", chapter: "HOSA Canada", role: "admin" } as const;
+type Person = typeof MEMBER | typeof ADMIN;
+const cookie = (p: Person) => `${SESSION_COOKIE}=${mintIdentityToken(SECRET, { ...p })}`;
+
 const post = (body: unknown) =>
-  POST(new NextRequest("https://v.test/api/comments", { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }));
+  POST(new NextRequest("https://v.test/api/comments", { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json", Cookie: cookie(MEMBER) } }));
 const get = (type: string, target: string) =>
-  GET(new NextRequest(`https://v.test/api/comments?type=${type}&target=${target}`));
-const del = (id: string) =>
-  DELETE(new NextRequest("https://v.test/api/comments", { method: "DELETE", body: JSON.stringify({ id }), headers: { "Content-Type": "application/json" } }));
+  GET(new NextRequest(`https://v.test/api/comments?type=${type}&target=${target}`, { headers: { Cookie: cookie(MEMBER) } }));
+const del = (who: Person, id: string) =>
+  DELETE(new NextRequest("https://v.test/api/comments", { method: "DELETE", body: JSON.stringify({ id }), headers: { "Content-Type": "application/json", Cookie: cookie(who) } }));
 
 let modId = "";
 beforeEach(() => {
   process.env.VELLUM_DEMO_MODE = "1";
+  process.env.VITALS_AUTH_SECRET = SECRET;
   __resetComments();
   __resetModules();
   __resetProfile();
@@ -41,6 +53,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env.VELLUM_DEMO_MODE;
+  delete process.env.VITALS_AUTH_SECRET;
   vi.clearAllMocks();
 });
 
@@ -78,13 +91,12 @@ describe("GET /api/comments", () => {
 describe("DELETE /api/comments", () => {
   it("lets the author delete their own", async () => {
     const id = (await (await post({ type: "module", target: modId, body: "mine" })).json()).comment.id;
-    expect((await del(id)).status).toBe(200);
+    expect((await del(MEMBER, id)).status).toBe(200);
   });
 
   it("forbids deleting someone else's, but an admin can", async () => {
     const foreign = addComment({ targetType: "module", targetId: modId, author: "someone_else", body: "theirs" })!;
-    expect((await del(foreign.id)).status).toBe(403);
-    updateProfile({ role: "admin" });
-    expect((await del(foreign.id)).status).toBe(200);
+    expect((await del(MEMBER, foreign.id)).status).toBe(403);
+    expect((await del(ADMIN, foreign.id)).status).toBe(200);
   });
 });

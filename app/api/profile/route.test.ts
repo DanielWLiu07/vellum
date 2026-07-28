@@ -16,7 +16,9 @@ const { recordAudit } = vi.hoisted(() => ({ recordAudit: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ recordAudit }));
 
 import { GET, PATCH } from "./route";
-import { __resetProfile, getProfile } from "@/lib/profile";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { mintIdentityToken } from "@/lib/identity-token";
+import { __resetProfile, getProfile, getViewer } from "@/lib/profile";
 import { __resetRateLimit } from "@/lib/rate-limit";
 
 const ALLOWED = { allowed: true, flagged: false, categories: [], checked: true };
@@ -57,12 +59,14 @@ describe("GET /api/profile", () => {
 
 describe("PATCH /api/profile", () => {
   it("updates fields and persists them", async () => {
-    const res = await PATCH(patchReq({ displayName: "Jordan Chen", chapter: "Vancouver West", role: "advisor" }));
+    // Only the member's own fields: chapter is rejected outright and role is
+    // dropped, both covered by their own describes below.
+    const res = await PATCH(patchReq({ displayName: "Jordan Chen", bio: "loves EMT" }));
     expect(res.status).toBe(200);
     const j = await res.json();
     expect(j.displayName).toBe("Jordan Chen");
-    expect(getProfile().chapter).toBe("Vancouver West");
-    expect(getProfile().role).toBe("advisor");
+    expect(getProfile().displayName).toBe("Jordan Chen");
+    expect(getProfile().bio).toBe("loves EMT");
     expect(recordAudit).toHaveBeenCalledWith("profile.update", "Jordan Chen");
   });
 
@@ -110,5 +114,76 @@ describe("PATCH /api/profile", () => {
   it("404s when the dashboard is disabled", async () => {
     delete process.env.VELLUM_DEMO_MODE;
     expect((await PATCH(patchReq({ displayName: "x" }))).status).toBe(404);
+  });
+});
+
+describe("PATCH /api/profile - chapter is not the member's to set", () => {
+  it("rejects a body carrying a chapter instead of silently dropping it", async () => {
+    const res = await PATCH(patchReq({ displayName: "Jordan", chapter: "Vancouver West" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("chapter_not_editable");
+    // The whole patch is refused, so the name didn't land either.
+    expect(getProfile().chapter).toBe("Toronto Central");
+    expect(getProfile().displayName).toBe("You");
+  });
+
+  it("rejects an empty-string chapter too (the sneaky 'clear it' case)", async () => {
+    expect((await PATCH(patchReq({ chapter: "" }))).status).toBe(400);
+  });
+
+  it("still saves a patch that minds its own business", async () => {
+    expect((await PATCH(patchReq({ displayName: "Jordan" }))).status).toBe(200);
+    expect(getProfile().displayName).toBe("Jordan");
+  });
+});
+
+describe("PATCH /api/profile - role is not the member's to set", () => {
+  it("drops a role from the patch instead of granting it", async () => {
+    // Dropped rather than rejected (the route stays compatible with clients
+    // that echo the whole profile back), but it must not land: with no session
+    // getViewer() derives `admin` from this profile, so honouring a role patch
+    // would let any signed-out visitor make themselves an admin.
+    const res = await PATCH(patchReq({ displayName: "Jordan", role: "admin" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).role).toBe("student");
+    expect(getProfile().role).toBe("student");
+    expect(getViewer().admin).toBe(false);
+    // The rest of the patch still applies.
+    expect(getProfile().displayName).toBe("Jordan");
+  });
+
+  it("ignores a role sent on its own too", async () => {
+    expect((await PATCH(patchReq({ role: "admin" }))).status).toBe(200);
+    expect(getViewer().admin).toBe(false);
+  });
+});
+
+// Signed-session cases run LAST: a session can be entered but never cleared,
+// so it would leak into the sessionless tests above.
+describe("PATCH /api/profile - a signed-in member's chapter tracks their token", () => {
+  const SECRET = "shared-secret-at-least-16-chars";
+  const signed = (body: unknown) =>
+    new NextRequest("https://v.test/api/profile", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `${SESSION_COOKIE}=${mintIdentityToken(SECRET, { sub: "hosa_7", name: "Ada", chapter: "Vancouver West", role: "student" })}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(() => { process.env.VITALS_AUTH_SECRET = SECRET; });
+  afterEach(() => { delete process.env.VITALS_AUTH_SECRET; });
+
+  it("returns the chapter from the token, not from the request", async () => {
+    const res = await PATCH(signed({ displayName: "Ada" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ owner: "hosa_7", chapter: "Vancouver West" });
+  });
+
+  it("400s a signed member who tries to move themselves", async () => {
+    const res = await PATCH(signed({ chapter: "Toronto Central" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("chapter_not_editable");
   });
 });

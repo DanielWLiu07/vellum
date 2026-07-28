@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 import { GET } from "./route";
 import { createQuiz, deleteQuiz } from "@/lib/quizzes";
 import { setShare } from "@/lib/resource-share";
-import { __resetProfile, updateProfile } from "@/lib/profile";
+import { __resetProfile } from "@/lib/profile";
 
 const call = (id: string) =>
   GET(new NextRequest(`https://v.test/api/quizzes/${id}/answers`), { params: Promise.resolve({ id }) });
@@ -46,7 +46,8 @@ describe("GET quiz answers", () => {
     const q = createQuiz("ChapterQ", [{ prompt: "p", choices: ["a", "b"], correctIndex: 1 }], "someone-else");
     ids.push(q.id);
     setShare(q.id, { visibility: "chapter", chapter: "Toronto Central" });
-    updateProfile({ chapter: "Toronto Central" });
+    // The demo viewer's chapter IS "Toronto Central" (lib/profile seeds it) and
+    // chapter is no longer patchable, so there's nothing to set up here.
     expect((await call(q.id)).status).toBe(200);
   });
 
