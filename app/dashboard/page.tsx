@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { Suspense } from "react";
 
+import { AppTopnav } from "@/components/app-topnav";
 import { Dashboard } from "@/components/dashboard";
 import { FavoritesProvider } from "@/components/favorites-context";
-import { ProfileBadge } from "@/components/profile-badge";
 
 export const metadata: Metadata = {
   title: "HOSA Vitals - dashboard",
@@ -14,18 +14,15 @@ export default function DashboardPage() {
   const enabled = process.env.VELLUM_DEMO_MODE === "1";
   return (
     <main className="dash-page">
-      <nav className="dash-topnav">
-        <Link href="/" className="dash-brand">HOSA Vitals</Link>
-        <span className="dash-topnav-links">
-          <Link href="/upload" className="dash-back">Upload</Link>
-          <Link href="/guidelines" className="dash-back">Guidelines</Link>
-          <Link href="/" className="dash-back">← Overview</Link>
-          <ProfileBadge />
-        </span>
-      </nav>
+      <AppTopnav />
       {enabled ? (
         <FavoritesProvider>
-          <Dashboard />
+          {/* Dashboard reads ?section= via useSearchParams, which opts its
+              subtree into client rendering — the boundary keeps that bailout
+              from swallowing the prerendered chrome above it. */}
+          <Suspense fallback={<div className="dash" />}>
+            <Dashboard />
+          </Suspense>
         </FavoritesProvider>
       ) : (
         <div className="dash"><p className="dash-muted">The dashboard is disabled on this deployment.</p></div>
