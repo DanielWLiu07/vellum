@@ -3,7 +3,14 @@ import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
 import { scanCopyright } from "@/lib/copyright";
-import { flaggedReason, moderateImage, moderateText } from "@/lib/moderation";
+import {
+  moderateImage,
+  moderateText,
+  moderationConfigured,
+  type ModerationResult,
+} from "@/lib/moderation";
+import { disposition, strictest, type Disposition } from "@/lib/moderation-gate";
+import { enqueue } from "@/lib/moderation-queue";
 import { extractPdfText } from "@/lib/pdf-content";
 import { moderatePdfContent } from "@/lib/pdf-moderation";
 import { getViewer } from "@/lib/profile";
@@ -71,15 +78,34 @@ export async function POST(req: NextRequest) {
   // rendered image of every page, so nothing on any page slips through). No-ops
   // without a key.
   const nameMod = await moderateText([name, event].filter(Boolean).join("\n"));
-  const bodyMod = contentType.startsWith("image/")
-    ? await moderateImage(bytes, contentType)
-    : contentType === "application/pdf"
-      ? await moderatePdfContent(bytes)
-      : null;
-  const mod = !nameMod.allowed ? nameMod : bodyMod && !bodyMod.allowed ? bodyMod : null;
-  if (mod) {
-    recordAudit("document.blocked", name, flaggedReason(mod));
-    return NextResponse.json({ error: "content_flagged", categories: mod.categories }, { status: 422 });
+  const imageMod = contentType.startsWith("image/") ? await moderateImage(bytes, contentType) : null;
+  const pdfMod = contentType === "application/pdf" ? await moderatePdfContent(bytes) : null;
+  const bodyMod: ModerationResult | null = imageMod ?? pdfMod;
+
+  // Name the coverage gap, if there is one, so a reviewer sees WHY an item is
+  // held rather than just that it is. Two cases the old binary check couldn't
+  // express: an image past moderateImage's size cap (which returns an
+  // allowed-but-unchecked result), and a PDF longer than the page-image cap,
+  // where the text was read but most pages were never looked at.
+  let coverageGap: string | undefined;
+  if (imageMod && !imageMod.checked) {
+    coverageGap = `image not examined (${(bytes.byteLength / (1024 * 1024)).toFixed(1)}MB)`;
+  } else if (pdfMod && pdfMod.pagesChecked < pdfMod.totalPages) {
+    coverageGap = `page images checked ${pdfMod.pagesChecked}/${pdfMod.totalPages}`;
+  }
+
+  const checks: Disposition[] = [disposition(nameMod)];
+  if (bodyMod) checks.push(disposition(bodyMod, coverageGap));
+  // A partially-covered PDF reports checked:true (the text pass ran), so
+  // disposition() alone would clear it. Add the gap as its own hold.
+  if (coverageGap && bodyMod?.checked && moderationConfigured()) {
+    checks.push({ action: "quarantine", reason: "unchecked", categories: [], detail: coverageGap });
+  }
+  const disp = strictest(checks);
+
+  if (disp.action === "refuse") {
+    recordAudit("document.blocked", name, disp.categories.join(", "));
+    return NextResponse.json({ error: "content_flagged", categories: disp.categories }, { status: 422 });
   }
   // Copyright screen: scan the title and (for PDFs) the document text for clear
   // markers of third-party published material, so we don't host an infringing
@@ -109,5 +135,33 @@ export async function POST(req: NextRequest) {
   if (typeof thumbField === "string" && thumbField) setThumbnail(meta.id, thumbField.slice(0, 64));
   if (event || noPreview) setResourceMeta(meta.id, { event, noPreview });
   recordAudit("document.upload", meta.name);
-  return NextResponse.json({ id: meta.id, name: meta.name, sizeBytes: meta.sizeBytes, contentType });
+
+  // Held content is still stored and still the owner's to read - uploads start
+  // private anyway. What the hold costs them is the ability to share it out,
+  // which resource-share.clampVisibility enforces until a reviewer decides.
+  if (disp.action === "quarantine") {
+    enqueue({
+      resourceId: meta.id,
+      kind: "document",
+      owner: viewer.owner,
+      title: meta.name,
+      reason: disp.reason,
+      categories: disp.categories,
+      detail: disp.detail,
+      requestedVisibility: "private",
+    });
+    recordAudit(
+      "document.quarantined",
+      meta.name,
+      [disp.reason, ...disp.categories, disp.detail].filter(Boolean).join(", "),
+    );
+  }
+
+  return NextResponse.json({
+    id: meta.id,
+    name: meta.name,
+    sizeBytes: meta.sizeBytes,
+    contentType,
+    ...(disp.action === "quarantine" ? { heldForReview: true } : {}),
+  });
 }

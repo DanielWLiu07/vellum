@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
+import { __resetModerationQueue, enqueue, resolveEntry } from "./moderation-queue";
 import { deleteShare, getShare, setShare } from "./resource-share";
+import { __resetShareBans, banPublicSharing, liftPublicShareBan } from "./share-ban";
 
 describe("resource share sidecar", () => {
   it("is empty for an unshared doc", () => {
@@ -54,5 +56,63 @@ describe("resource share sidecar", () => {
     setShare("u_h", { visibility: "public" });
     deleteShare("u_h");
     expect(getShare("u_h")).toBeUndefined();
+  });
+});
+
+describe("setShare is the gate to an audience", () => {
+  beforeEach(() => {
+    __resetModerationQueue();
+    __resetShareBans();
+  });
+
+  it("forces a held resource private however loudly the caller asks otherwise", () => {
+    enqueue({ resourceId: "q_1", kind: "document", owner: "ava", title: "held", reason: "flagged" });
+    expect(setShare("q_1", { visibility: "public" }).visibility).toBe("private");
+    expect(setShare("q_1", { visibility: "chapter" }).visibility).toBe("private");
+  });
+
+  it("releases the resource once the hold is resolved", () => {
+    const e = enqueue({ resourceId: "q_2", kind: "document", owner: "ava", title: "held", reason: "flagged" });
+    expect(setShare("q_2", { visibility: "public" }).visibility).toBe("private");
+    resolveEntry(e.id, "approved", "admin");
+    expect(setShare("q_2", { visibility: "public" }).visibility).toBe("public");
+  });
+
+  it("clamps a banned owner to private", () => {
+    banPublicSharing("ava", "admin");
+    expect(setShare("b_1", { visibility: "public" }, undefined, "ava").visibility).toBe("private");
+  });
+
+  it("clamps a banned owner's CHAPTER scope too - a chapter is an audience", () => {
+    banPublicSharing("ava", "admin");
+    expect(setShare("b_2", { visibility: "chapter" }, undefined, "ava").visibility).toBe("private");
+  });
+
+  it("does not clamp a different, unbanned owner", () => {
+    banPublicSharing("ava", "admin");
+    expect(setShare("b_3", { visibility: "public" }, undefined, "ben").visibility).toBe("public");
+  });
+
+  it("lets a lifted ban restore the ability to share", () => {
+    banPublicSharing("ava", "admin");
+    expect(setShare("b_4", { visibility: "public" }, undefined, "ava").visibility).toBe("private");
+    liftPublicShareBan("ava");
+    expect(setShare("b_4", { visibility: "public" }, undefined, "ava").visibility).toBe("public");
+  });
+
+  it("leaves named per-person grants intact through a clamp, so a reviewer can still be added", () => {
+    banPublicSharing("ava", "admin");
+    const state = setShare(
+      "b_5",
+      { visibility: "public", people: [{ person: "Reviewer", role: "viewer" }] },
+      undefined,
+      "ava",
+    );
+    expect(state.visibility).toBe("private");
+    expect(state.people).toEqual([{ person: "Reviewer", role: "viewer" }]);
+  });
+
+  it("is unaffected when no actor is supplied and nothing is held (seeding stays public)", () => {
+    expect(setShare("b_6", { visibility: "public" }).visibility).toBe("public");
   });
 });

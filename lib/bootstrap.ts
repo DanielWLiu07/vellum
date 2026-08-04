@@ -12,12 +12,14 @@ import "./decks";
 import "./favorites";
 import "./feedback";
 import "./folders";
+import "./moderation-queue";
 import "./modules";
 import "./profile";
 import "./quiz-attempts";
 import "./quizzes";
 import "./resource-meta";
 import "./resource-share";
+import "./share-ban";
 import "./thumbnails";
 import "./users";
 

@@ -10,6 +10,8 @@
  */
 
 import { normalizePeople, type PersonShare, type Visibility } from "./visibility";
+import { isQuarantined } from "./moderation-queue";
+import { isPublicSharingBanned } from "./share-ban";
 
 export interface ShareState {
   visibility: Visibility;
@@ -30,6 +32,33 @@ export function getShare(docId: string): ShareState | undefined {
 }
 
 /**
+ * The one gate between a resource and an audience. Two things force `private`
+ * regardless of what a caller asked for:
+ *
+ *   - the resource is awaiting moderation review, so it must not reach anyone
+ *     while the review it is waiting on is still open;
+ *   - the owner is banned from public sharing.
+ *
+ * `chapter` is clamped too, not just `public` — a chapter is every member of
+ * that chapter, which is exactly the audience a ban is meant to remove. Named
+ * per-person grants are deliberately untouched: they survive both cases, so a
+ * banned or held resource can still be handed to a specific reviewer.
+ *
+ * This lives here rather than at the eight setShare call sites because a check
+ * repeated eight times is a check the ninth caller forgets.
+ */
+export function clampVisibility(
+  docId: string,
+  requested: Visibility,
+  actor?: string,
+): Visibility {
+  if (requested === "private") return requested;
+  if (isQuarantined(docId)) return "private";
+  if (actor && isPublicSharingBanned(actor)) return "private";
+  return requested;
+}
+
+/**
  * Merge a partial update into a resource's share state. Callers pass only the
  * fields they're changing; anything else (e.g. the people list when just the
  * scope changes) is preserved. `defaults` seeds visibility/chapter the first
@@ -40,10 +69,12 @@ export function setShare(
   docId: string,
   patch: Partial<ShareState>,
   defaults: { visibility: Visibility; chapter: string } = { visibility: "public", chapter: "" },
+  actor?: string,
 ): ShareState {
   const prev = store.get(docId);
+  const requested = patch.visibility ?? prev?.visibility ?? defaults.visibility;
   const next: ShareState = {
-    visibility: patch.visibility ?? prev?.visibility ?? defaults.visibility,
+    visibility: clampVisibility(docId, requested, actor),
     chapter: (patch.chapter ?? prev?.chapter ?? defaults.chapter).slice(0, 80),
     people: patch.people !== undefined ? normalizePeople(patch.people) : prev?.people ?? [],
     ...(patch.name !== undefined
