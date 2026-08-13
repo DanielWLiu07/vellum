@@ -57,7 +57,10 @@ describe("GET /api/modules/[id]", () => {
     const res = await get(MEMBER, m.id);
     expect(res.status).toBe(200);
     const j = await res.json();
-    expect(j.module.sections[0].subsections[0].slidesId).toBe("1AbcDEF_ghIJKlmnop123456789");
+    // The fixture is authored in the pre-blocks shape on purpose: lib/modules
+    // migrates it to a one-block part on the way out, so this also covers what
+    // a member sees when they open a module written by the old build.
+    expect(j.module.sections[0].subsections[0].blocks[0].slidesId).toBe("1AbcDEF_ghIJKlmnop123456789");
     expect(j.canEdit).toBe(false);
   });
 
@@ -79,7 +82,7 @@ describe("PATCH /api/modules/[id] (admin only)", () => {
     const j = await res.json();
     expect(j.module.title).toBe("A2");
     expect(j.module.sections[0].subsections[0].title).toBe("P");
-    expect(j.module.sections[0].subsections[0].slidesId).toBe("1AbcDEF_ghIJKlmnop123456789");
+    expect(j.module.sections[0].subsections[0].blocks[0].slidesId).toBe("1AbcDEF_ghIJKlmnop123456789");
   });
 });
 

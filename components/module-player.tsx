@@ -4,15 +4,19 @@ import Link from "next/link";
 import * as React from "react";
 
 import { renderMarkdown } from "@/lib/markdown";
+// Type-only: lib/modules owns the store and reaches node:fs through the durable
+// layer, so a VALUE imported from it would follow the module into the client
+// bundle. Types don't - which is why the pure helpers below are hand-written
+// twins of the ones in lib/modules rather than imports of them.
+import type { Block, GoogleBlock, Module, Subsection } from "@/lib/modules";
 import { RETURN_TO, returnLabel } from "@/lib/return-to";
+import { clearStudy, recordStudy } from "@/lib/study-client";
+// Type-only, for the same reason: lib/study-activity owns the study store.
+import type { ModuleProgress } from "@/lib/study-activity";
 
 import { Comments } from "./comments";
+import { ReportProblem } from "./report-problem";
 import { SlidesScroll } from "./slides-scroll";
-
-type SubKind = "slides" | "doc" | "pdf" | "info";
-type Subsection = { id: string; title: string; kind: SubKind; slidesId: string; slidesPub: boolean; docId: string; body: string };
-type Section = { id: string; title: string; subsections: Subsection[] };
-type Module = { id: string; title: string; summary?: string; sections: Section[] };
 
 type Step = { secIdx: number; secTitle: string; sub: Subsection };
 type Mode = "scroll" | "slideshow";
@@ -23,20 +27,22 @@ function flatten(m: Module): Step[] {
   return out;
 }
 
+const isGoogle = (b: Block): b is GoogleBlock => b.kind === "slides" || b.kind === "doc";
 // Interactive embed / preview URL (Slides embed, or Docs preview/pub) - google only.
-const embedUrl = (s: Subsection) => {
-  if (!s.slidesId || (s.kind !== "slides" && s.kind !== "doc")) return "";
-  const e = s.slidesPub ? "e/" : "";
-  return s.kind === "doc"
-    ? `https://docs.google.com/document/d/${e}${s.slidesId}/${s.slidesPub ? "pub" : "preview"}`
-    : `https://docs.google.com/presentation/d/${e}${s.slidesId}/embed`;
+const embedUrl = (b: Block) => {
+  if (!isGoogle(b) || !b.slidesId) return "";
+  const e = b.slidesPub ? "e/" : "";
+  return b.kind === "doc"
+    ? `https://docs.google.com/document/d/${e}${b.slidesId}/${b.slidesPub ? "pub" : "preview"}`
+    : `https://docs.google.com/presentation/d/${e}${b.slidesId}/embed`;
 };
 // The stacked scroll view needs a renderable PDF source: a Google FILE (not a
 // published /d/e/ id) or an uploaded PDF.
-const canScrollDeck = (s: Subsection) =>
-  s.kind === "pdf" ? Boolean(s.docId) : (s.kind === "slides" || s.kind === "doc") && Boolean(s.slidesId) && !s.slidesPub;
-const renderSource = (s: Subsection) => (s.kind === "pdf" ? s.docId : s.slidesId);
-const hasContent = (s: Subsection) => (s.kind === "info" ? Boolean(s.body.trim()) : s.kind === "pdf" ? Boolean(s.docId) : Boolean(s.slidesId));
+const canScroll = (b: Block) => (isGoogle(b) ? Boolean(b.slidesId) && !b.slidesPub : b.kind === "pdf" && Boolean(b.docId));
+const blockHasContent = (b: Block) =>
+  b.kind === "info" ? Boolean(b.body.trim()) : b.kind === "pdf" ? Boolean(b.docId) : Boolean(b.slidesId);
+/** A part counts if ANY of its blocks has something in it. */
+const hasContent = (s: Subsection) => (s.blocks ?? []).some(blockHasContent);
 
 export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
   moduleId: string;
@@ -51,7 +57,8 @@ export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
   const [done, setDone] = React.useState<Set<string>>(new Set());
   const [expanded, setExpanded] = React.useState<Set<number>>(new Set());
 
-  const progressKey = `vitals-module-progress:${moduleId}`;
+  const [resumePart, setResumePart] = React.useState<string | null>(null);
+  const resumed = React.useRef(false);
   const modeKey = "vitals-module-mode";
 
   React.useEffect(() => {
@@ -63,25 +70,94 @@ export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
     return () => { live = false; };
   }, [moduleId]);
 
+  // The view-mode preference stays in localStorage: it is a property of this
+  // browser, not of the member. Progress is not - see below.
   React.useEffect(() => {
     try {
-      const rawDone = localStorage.getItem(progressKey);
       const rawMode = localStorage.getItem(modeKey);
       queueMicrotask(() => {
-        if (rawDone) { try { setDone(new Set(JSON.parse(rawDone) as string[])); } catch { /* ignore */ } }
         if (rawMode === "slideshow" || rawMode === "scroll") setMode(rawMode);
       });
     } catch { /* ignore */ }
-  }, [progressKey]);
+  }, []);
 
-  const saveDone = React.useCallback((n: Set<string>) => {
-    setDone(n);
-    try { localStorage.setItem(progressKey, JSON.stringify([...n])); } catch { /* ignore */ }
-  }, [progressKey]);
+  /**
+   * Progress comes from the study store now.
+   *
+   * It used to live in localStorage, which meant a member's own phone showed
+   * none of the work they did on a laptop, and an advisor could see none of it
+   * at all - the only completions the platform knew about were the ones a
+   * trainer had assigned. Whatever is already ticked on THIS browser is pushed
+   * up once and the key deleted; keeping both would leave two answers to the
+   * same question and no way to tell which one is right.
+   */
+  React.useEffect(() => {
+    let live = true;
+    (async () => {
+      const legacyKey = `vitals-module-progress:${moduleId}`;
+      let legacy: string[] = [];
+      try {
+        const raw = localStorage.getItem(legacyKey);
+        if (raw) legacy = JSON.parse(raw) as string[];
+      } catch { /* unreadable reads the same as absent */ }
+      if (Array.isArray(legacy) && legacy.length) {
+        await Promise.all(
+          legacy.map((part) => recordStudy({ kind: "module", refId: moduleId, part, action: "completed" })),
+        );
+      }
+      try { localStorage.removeItem(legacyKey); } catch { /* ignore */ }
+
+      const res = await fetch(`/api/study/progress?kind=module&refId=${encodeURIComponent(moduleId)}`, {
+        cache: "no-store",
+      }).catch(() => null);
+      if (!live || !res?.ok) return;
+      const progress = (await res.json().catch(() => null))?.progress as ModuleProgress | undefined;
+      if (!live || !progress) return;
+      setDone(new Set(progress.completedParts));
+      setResumePart(progress.resumePart);
+    })();
+    return () => { live = false; };
+  }, [moduleId]);
+
   const chooseMode = (m: Mode) => { setMode(m); try { localStorage.setItem(modeKey, m); } catch { /* ignore */ } };
 
   const steps = React.useMemo(() => (mod ? flatten(mod) : []), [mod]);
   const totalSubs = steps.length;
+
+  // Drop them back where they stopped, once. Later navigation is theirs. The
+  // jump follows a fetch, and the ref makes it a one-shot, so it can't cascade.
+  React.useEffect(() => {
+    if (resumed.current || !resumePart || steps.length === 0) return;
+    resumed.current = true;
+    const at = steps.findIndex((s) => s.sub.id === resumePart);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (at > 0) setI(at);
+  }, [resumePart, steps]);
+
+  // Opening a subsection is the "self-directed study" signal that nothing used
+  // to record. Fire and forget: a lost write costs a resume point, not a lesson.
+  const openSubId = steps[Math.min(i, Math.max(0, steps.length - 1))]?.sub.id;
+  React.useEffect(() => {
+    if (!openSubId) return;
+    void recordStudy({ kind: "module", refId: moduleId, part: openSubId, action: "viewed" });
+  }, [moduleId, openSubId]);
+
+  /**
+   * Tick a subsection off. The checkbox moves immediately and the write
+   * follows: gating it on a round-trip makes the module feel broken on a slow
+   * connection, and the cost of a failed write is one lost tick.
+   */
+  const setPartDone = React.useCallback((subId: string, next: boolean) => {
+    setDone((prev) => {
+      const n = new Set(prev);
+      if (next) n.add(subId);
+      else n.delete(subId);
+      return n;
+    });
+    void (next
+      ? recordStudy({ kind: "module", refId: moduleId, part: subId, action: "completed" })
+      : clearStudy({ kind: "module", refId: moduleId, part: subId }));
+  }, [moduleId]);
 
   const next = React.useCallback(() => setI((x) => Math.min(steps.length - 1, x + 1)), [steps.length]);
   const prev = React.useCallback(() => setI((x) => Math.max(0, x - 1)), []);
@@ -103,14 +179,17 @@ export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
   const doneCount = done.size;
   const pct = totalSubs ? Math.round((doneCount / totalSubs) * 100) : 0;
 
-  const toggleDone = (subId: string) => { const n = new Set(done); if (n.has(subId)) n.delete(subId); else n.add(subId); saveDone(n); };
-  const markDone = (subId: string) => { if (!done.has(subId)) { const n = new Set(done); n.add(subId); saveDone(n); } };
+  const toggleDone = (subId: string) => setPartDone(subId, !done.has(subId));
+  const markDone = (subId: string) => { if (!done.has(subId)) setPartDone(subId, true); };
   const toggleSection = (si: number) => setExpanded((e) => { const n = new Set(e); if (n.has(si)) n.delete(si); else n.add(si); return n; });
 
-  const embed = embedUrl(step.sub);
-  // Scroll = vertical rendered slides; falls back to the embed when the deck
-  // can't export (published id, or nothing linked).
-  const showScroll = mode === "scroll" && canScrollDeck(step.sub);
+  // Empty blocks are an authoring state, not something to show a student: an
+  // admin who added a deck but hasn't pasted the link yet leaves a hole, not an
+  // error tile. Drop them, and the part reads as empty when none are left.
+  const blocks = (step.sub.blocks ?? []).filter(blockHasContent);
+  // Scroll = vertical rendered slides; the toggle only makes sense when some
+  // deck in this part can actually export (a published id can't).
+  const canToggleMode = blocks.some((b) => isGoogle(b) && !b.slidesPub);
 
   return (
     <div className="module-shell">
@@ -162,9 +241,10 @@ export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
             <p className="module-slide-kicker">{step.secTitle}</p>
             <h1 className="module-stage-title">{step.sub.title}</h1>
           </div>
-          {/* Scroll / Slideshow toggle, top-right - only for Google files that
-              can do both (a PDF is scroll-only; info is text-only). */}
-          {(step.sub.kind === "slides" || step.sub.kind === "doc") && canScrollDeck(step.sub) && embed && (
+          {/* Scroll / Slideshow toggle, top-right. One toggle for the whole
+              part: the mode is a reading preference, not a per-block setting,
+              and every deck in the part follows it. */}
+          {canToggleMode && (
             <div className="module-mode" role="tablist" aria-label="View mode">
               <button type="button" role="tab" aria-selected={mode === "scroll"} className={`module-mode-btn${mode === "scroll" ? " is-active" : ""}`} onClick={() => chooseMode("scroll")}>Scroll</button>
               <button type="button" role="tab" aria-selected={mode === "slideshow"} className={`module-mode-btn${mode === "slideshow" ? " is-active" : ""}`} onClick={() => chooseMode("slideshow")}>Slideshow</button>
@@ -172,30 +252,19 @@ export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
           )}
         </div>
 
-        {!hasContent(step.sub) ? (
+        {blocks.length === 0 ? (
           <div className="module-embed-empty">
             <p className="module-embed-empty-title">Nothing here yet</p>
-            <p className="dash-sub">An admin can add a Google Slides/Docs link, a PDF, or written info for this subsection in the module editor.</p>
-          </div>
-        ) : step.sub.kind === "info" ? (
-          // Info: authored Markdown, rendered straight on the site (no file).
-          // renderMarkdown escapes every text run before emitting a tag, so a
-          // body can't inject HTML - see the SAFETY note in lib/markdown.
-          <article className="module-info" dangerouslySetInnerHTML={{ __html: renderMarkdown(step.sub.body) }} />
-        ) : step.sub.kind === "pdf" || showScroll ? (
-          // Stacked, image-rendered pages (uploaded PDF, or a Google file's export).
-          <div className="module-scroll-viewer">
-            <SlidesScroll key={renderSource(step.sub)} id={renderSource(step.sub)} kind={step.sub.kind === "doc" ? "doc" : step.sub.kind === "pdf" ? "pdf" : "slides"} title={step.sub.title} />
+            <p className="dash-sub">An admin can add a Google Slides/Docs link, a PDF, or written info to this part in the module editor.</p>
           </div>
         ) : (
-          <>
-            {mode === "scroll" && (
-              <p className="module-note">This deck is published-only, so the scroll view isn&apos;t available - showing the slideshow. Share it as a file (&quot;anyone with the link&quot;) to enable scroll.</p>
-            )}
-            <div className="module-embed-frame">
-              <iframe className="module-embed" src={embed} title={step.sub.title} allowFullScreen allow="fullscreen" />
-            </div>
-          </>
+          <div className="module-scroll">
+            {blocks.map((b) => (
+              <div key={b.id} className="module-scroll-item">
+                <PlayerBlock block={b} mode={mode} title={step.sub.title} boxed={blocks.length === 1} />
+              </div>
+            ))}
+          </div>
         )}
 
         <div className="module-nav">
@@ -212,8 +281,51 @@ export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
           )}
         </div>
 
+        {/* The two ways to say something about this module, side by side, so
+            nobody has to guess which one gets a wrong answer fixed. A div, not
+            a p: ReportProblem renders its dialog inline, and a p can't hold it. */}
+        <div className="module-note" style={{ marginTop: 20 }}>
+          The comments below are a public discussion - other members read them. If something in
+          this module is actually wrong, like a bad answer or a broken link, tell staff instead:{" "}
+          <ReportProblem target={{ kind: "module", id: mod.id, title: mod.title }} />
+        </div>
+
         <Comments type="module" target={mod.id} />
       </main>
     </div>
+  );
+}
+
+/**
+ * One block of a part.
+ *
+ * `boxed` keeps the fixed-height scroll viewer for a part holding a SINGLE
+ * block - which is every module authored before blocks existed - and drops it
+ * as soon as there are more. A column of nested scrollers steals the wheel from
+ * the page halfway down a part, and a stacked part is meant to read as one
+ * continuous thing.
+ */
+function PlayerBlock({ block, mode, title, boxed }: { block: Block; mode: Mode; title: string; boxed: boolean }) {
+  if (block.kind === "info") {
+    // Authored Markdown, rendered straight on the site. renderMarkdown escapes
+    // every text run before emitting a tag, so a body can't inject HTML - see
+    // the SAFETY note in lib/markdown.
+    return <article className="module-info" dangerouslySetInnerHTML={{ __html: renderMarkdown(block.body) }} />;
+  }
+  if (block.kind === "pdf" || (mode === "scroll" && canScroll(block))) {
+    // Stacked, image-rendered pages (uploaded PDF, or a Google file's export).
+    const src = block.kind === "pdf" ? block.docId : block.slidesId;
+    const pages = <SlidesScroll key={src} id={src} kind={block.kind} title={title} />;
+    return boxed ? <div className="module-scroll-viewer">{pages}</div> : pages;
+  }
+  return (
+    <>
+      {mode === "scroll" && (
+        <p className="module-note">This deck is published-only, so the scroll view isn&apos;t available - showing the slideshow. Share it as a file (&quot;anyone with the link&quot;) to enable scroll.</p>
+      )}
+      <div className="module-embed-frame">
+        <iframe className="module-embed" src={embedUrl(block)} title={title} allowFullScreen allow="fullscreen" />
+      </div>
+    </>
   );
 }

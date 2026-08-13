@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
-import { listFeedback, setResolved, submitFeedback } from "@/lib/feedback";
+import { isFeedbackTargetKind, listFeedback, listFeedbackFor, setResolved, submitFeedback } from "@/lib/feedback";
 import { getViewer } from "@/lib/profile";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
@@ -28,10 +28,14 @@ export async function POST(req: NextRequest) {
     );
   }
   const body = await req.json().catch(() => null);
+  // A malformed `target` is dropped inside submitFeedback rather than 400'd
+  // here: the student's message is the report, and a UI bug in how the module
+  // was named must not throw their words away.
   const item = submitFeedback({
     kind: body?.kind,
     message: body?.message,
     page: body?.page,
+    target: body?.target,
     reporter: getViewer().owner,
   });
   if (!item) return NextResponse.json({ error: "empty_message" }, { status: 400 });
@@ -45,7 +49,19 @@ export async function GET(req: NextRequest) {
   const off = gated();
   if (off) return off;
   if (!getViewer().admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  return NextResponse.json({ feedback: listFeedback() }, { headers: { "Cache-Control": "no-store" } });
+  const params = req.nextUrl.searchParams;
+  const targetKind = params.get("targetKind");
+  const targetId = params.get("targetId");
+  // Neither param means the whole log, as before. Either one present means the
+  // admin asked to narrow, so a half-given or unknown pair lists nothing -
+  // falling back to every report would read as "no others exist about this".
+  const feedback =
+    targetKind === null && targetId === null
+      ? listFeedback()
+      : isFeedbackTargetKind(targetKind)
+        ? listFeedbackFor(targetKind, targetId ?? "")
+        : [];
+  return NextResponse.json({ feedback }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** Resolve or reopen a report — admin only. */

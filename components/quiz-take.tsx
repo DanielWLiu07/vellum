@@ -5,6 +5,8 @@ import * as React from "react";
 
 import { RETURN_TO, returnLabel } from "@/lib/return-to";
 
+import { ReportProblem } from "./report-problem";
+
 type Choice = { text: string; imageId?: string };
 type TakerQuestion = { prompt: string; choices: Choice[]; promptImageId?: string };
 type ExamSettings = { timeLimitSec: number };
@@ -199,6 +201,22 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
   if (err) return <div className="upload-card"><p className="dash-sub">Quiz not found.</p><Link className="btn" href={backHref}>← {backLabel}</Link></div>;
   if (!quiz) return <div className="upload-card"><p className="dash-sub">Loading...</p></div>;
 
+  // Reporting is a review-time action, not an attempt-time one.
+  //
+  // Inside a live exam it is gone entirely. A free-text dialog in the middle of
+  // a timed, fullscreen, proctored attempt is a channel none of the integrity
+  // rules above cover, and every second in it is a second off a clock that
+  // doesn't stop - which quietly makes reporting cost marks. Practice keeps the
+  // quiz-level control while answering: a typo in a prompt is visible before
+  // grading and nothing is at stake.
+  //
+  // Per QUESTION the control appears only once the marking does (see `perQ`).
+  // Before submitting, "this answer is wrong" is a prediction; after, the
+  // member is looking at the key that marked them, which is both the moment
+  // they doubt it and the moment their report is worth acting on.
+  const examInProgress = isExam && started && !result;
+  const quizTarget = { kind: "quiz" as const, id: quizId, title: quiz.title };
+
   // Exam pre-start gate: instructions + integrity notice, then the taker starts
   // deliberately (which also grants the fullscreen gesture).
   if (isExam && !started && !result) {
@@ -218,7 +236,10 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
           </ul>
           <button type="button" className="cta" onClick={startExam}>Start exam</button>
         </div>
-        <Link className="dash-back" href={backHref}>← {backLabel}</Link>
+        <div className="study-foot">
+          <ReportProblem target={quizTarget} />
+          <Link className="dash-back" href={backHref}>← {backLabel}</Link>
+        </div>
       </div>
     );
   }
@@ -325,6 +346,16 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
               {study && !isExam && !result && !shown.has(qi) && (
                 <button type="button" className="quiz-show-answer" onClick={() => showAnswer(qi)}>Show answer</button>
               )}
+              {perQ !== undefined && (
+                // In the same slot "Show answer" used while answering, so the
+                // foot of a question card is always where its own actions are.
+                // The number goes with it: a wrong key is a defect in question
+                // 7, and an admin should not have to work out which one from
+                // prose.
+                <div style={{ marginTop: 8 }}>
+                  <ReportProblem target={{ ...quizTarget, question: qi + 1 }} />
+                </div>
+              )}
             </div>
           );
         })}
@@ -349,7 +380,14 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
         )}
       </div>
 
-      <Link className="dash-back" href={backHref}>← {backLabel}</Link>
+      {/* The page's closing row: the rare secondary action, then the way out.
+          Below study-controls and never inside it - Submit, Try again and Done
+          own that row, and a report control there would be a fifth button
+          competing with the one the member came to press. */}
+      <div className="study-foot">
+        {!examInProgress && <ReportProblem target={quizTarget} />}
+        <Link className="dash-back" href={backHref}>← {backLabel}</Link>
+      </div>
     </div>
   );
 }

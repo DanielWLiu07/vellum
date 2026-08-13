@@ -36,11 +36,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "bad_request" }, { status: 400 });
 
-  // Moderate the authored text (title + summary + every slide title/body).
-  // Moderate the authored TEXT (module + section + subsection titles). Slides
-  // live in Google Slides - their content isn't ours to moderate here.
+  // Moderate the authored TEXT (module + section + part titles, and the body of
+  // every written-info block). Slides live in Google Slides - their content
+  // isn't ours to moderate here.
+  //
+  // A part carries its text in `blocks` now, but an editor tab left open across
+  // a deploy still PATCHes the old single-artifact shape, and lib/modules will
+  // accept it. Anything moderation skips is text that gets stored, so this walk
+  // reads both shapes rather than assuming the new one.
   const texts: string[] = [];
   const pushText = (v: unknown) => { if (typeof v === "string") texts.push(v); };
+  const pushInfoBody = (v: { kind?: unknown; body?: unknown }) => { if (v.kind === "info") pushText(v.body); };
   pushText(body.title);
   pushText(body.summary);
   if (Array.isArray(body.sections)) {
@@ -49,9 +55,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       pushText(s.title);
       const subs = Array.isArray(s.subsections) ? s.subsections : [];
       for (const ss of subs) {
-        if (ss && typeof ss === "object") {
-          pushText(ss.title);
-          if (ss.kind === "info") pushText(ss.body); // authored text is ours to moderate
+        if (!ss || typeof ss !== "object") continue;
+        pushText(ss.title);
+        pushInfoBody(ss); // pre-blocks shape: the part IS its one artifact
+        for (const b of Array.isArray(ss.blocks) ? ss.blocks : []) {
+          if (b && typeof b === "object") pushInfoBody(b);
         }
       }
     }

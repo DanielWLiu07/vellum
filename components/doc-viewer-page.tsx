@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { PdfViewer } from "@/components/pdf-viewer";
+import { ReportContent } from "@/components/report-content";
 import { returnLabel, withBack } from "@/lib/return-to";
 
 interface DocMeta {
@@ -196,6 +197,10 @@ export function DocViewerPage({
           </div>
           <div className="viewer-page-comments">
             <Comments type="doc" target={id} />
+            {/* Under the thread, not up in the nav: reporting belongs where a
+                reader has already looked at the thing, and the top bar's
+                actions are all about the document you meant to open. */}
+            <ReportContent kind="doc" id={id} title={state.meta?.name ?? "this document"} />
           </div>
         </>
       )}
