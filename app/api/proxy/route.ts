@@ -10,8 +10,22 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAllowedSource } from "@/lib/source-guard";
+import { ensureReady } from "@/lib/bootstrap";
+import { localDocId } from "@/lib/local-source";
+import { fetchAllowedSource } from "@/lib/source-guard";
+import { getDoc, getDocBytes } from "@/lib/store";
+import { limitStream } from "@/lib/stream-limit";
 import { verifyToken } from "@/lib/token";
+
+/** A one-chunk stream, so stored bytes take the same capped path as a fetch. */
+function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,29 +57,66 @@ export async function POST(req: NextRequest) {
 
   const { src } = result.claims;
 
-  // SSRF guard (defense-in-depth behind the HMAC): refuse non-http(s) and
-  // private/internal hosts unless the source is the service's own origin.
-  if (!isAllowedSource(src, req.nextUrl.host)) {
-    return NextResponse.json({ error: "blocked_source" }, { status: 403 });
+  // Our own document: read it, don't fetch it. A server-side fetch carries no
+  // cookies, so asking ourselves over HTTP means failing our own session gate.
+  // The verified token IS the authority here — /api/share checked canView
+  // before minting it — so going to the store directly is both correct and a
+  // hop cheaper. See lib/local-source.
+  const localId = localDocId(src, req.nextUrl.origin);
+  let effectiveSrc = src;
+  if (localId) {
+    await ensureReady();
+    const doc = await getDoc(localId);
+    if (!doc) {
+      return NextResponse.json({ error: "source_error", status: 404 }, { status: 502 });
+    }
+    if (doc.bundled && doc.publicPath) {
+      // A sample has no stored bytes — it ships in /public. Point at the file
+      // itself rather than the API route that would redirect to it, so the
+      // fetch below never has to bounce through the session gate.
+      effectiveSrc = new URL(doc.publicPath, req.nextUrl.origin).toString();
+    } else {
+      const bytes = await getDocBytes(localId);
+      if (!bytes) {
+        return NextResponse.json({ error: "source_error", status: 404 }, { status: 502 });
+      }
+      return new NextResponse(limitStream(streamOf(bytes), MAX_BYTES), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Cache-Control": "no-store, max-age=0",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Disposition": "inline",
+        },
+      });
+    }
   }
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(src, { redirect: "follow", cache: "no-store" });
-  } catch {
-    return NextResponse.json({ error: "source_unreachable" }, { status: 502 });
+  // SSRF guard (defense-in-depth behind the HMAC): refuse non-http(s) and
+  // private/internal hosts unless the source is the service's own origin. The
+  // guard re-runs on every redirect hop — see fetchAllowedSource.
+  const guarded = await fetchAllowedSource(effectiveSrc, req.nextUrl.host);
+  if (!guarded.ok) {
+    return NextResponse.json(
+      { error: guarded.error },
+      { status: guarded.error === "blocked_source" ? 403 : 502 },
+    );
   }
+  const upstream = guarded.response;
   if (!upstream.ok || !upstream.body) {
     return NextResponse.json({ error: "source_error", status: upstream.status }, { status: 502 });
   }
 
+  // Cheap early reject on the declared size; limitStream is what actually
+  // enforces the ceiling, since content-length is absent on a chunked
+  // response and unverified on any other.
   const declaredLength = Number(upstream.headers.get("content-length") ?? "0");
   if (declaredLength > MAX_BYTES) {
     return NextResponse.json({ error: "source_too_large" }, { status: 413 });
   }
 
   // Stream through unchanged; force a PDF content-type and no-store caching.
-  return new NextResponse(upstream.body, {
+  return new NextResponse(limitStream(upstream.body, MAX_BYTES), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",

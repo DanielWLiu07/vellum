@@ -18,6 +18,8 @@ const { putImage } = vi.hoisted(() => ({ putImage: vi.fn() }));
 vi.mock("@/lib/images", () => ({ putImage }));
 
 import { POST } from "./route";
+import { mintIdentityToken, SESSION_COOKIE } from "@/lib/identity-token";
+import { __resetProfile } from "@/lib/profile";
 import { __resetRateLimit } from "@/lib/rate-limit";
 
 const ALLOWED = { allowed: true, flagged: false, categories: [], checked: true };
@@ -99,5 +101,59 @@ describe("POST /api/images", () => {
   it("404s when the dashboard is disabled", async () => {
     delete process.env.VELLUM_DEMO_MODE;
     expect((await POST(postFile(png()))).status).toBe(404);
+  });
+});
+
+// This was the one write route with no session requirement, gated only on
+// VELLUM_DEMO_MODE — which every real deployment sets. With moderation skipped
+// (no OPENAI_API_KEY) and /api/images/[id] serving immutable for a year, an
+// anonymous POST bought a permanent public URL on the HOSA domain.
+describe("POST /api/images — session requirement", () => {
+  const SECRET = "test-secret-at-least-16-chars";
+
+  const withCookie = (bytes: Uint8Array, token?: string) => {
+    const fd = new FormData();
+    fd.set("file", new File([bytes], "card.png", { type: "image/png" }));
+    return new NextRequest("https://v.test/api/images", {
+      method: "POST",
+      body: fd,
+      headers: token ? { cookie: `${SESSION_COOKIE}=${token}` } : {},
+    });
+  };
+  const member = () =>
+    mintIdentityToken(SECRET, { sub: "hosa_1", name: "Nina", chapter: "chp_1", role: "student" });
+
+  beforeEach(() => {
+    __resetProfile();
+    vi.stubEnv("VITALS_AUTH_SECRET", SECRET);
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("refuses an anonymous upload", async () => {
+    const res = await POST(withCookie(png()));
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("unauthenticated");
+    expect(putImage).not.toHaveBeenCalled();
+  });
+
+  it("refuses an upload carrying a forged session", async () => {
+    expect((await POST(withCookie(png(), "not-a-token"))).status).toBe(401);
+    expect(putImage).not.toHaveBeenCalled();
+  });
+
+  it("refuses before spending the moderation budget", async () => {
+    await POST(withCookie(png()));
+    expect(moderateImage).not.toHaveBeenCalled();
+  });
+
+  it("accepts an upload from an authenticated member", async () => {
+    const res = await POST(withCookie(png(), member()));
+    expect(res.status).toBe(200);
+    expect(putImage).toHaveBeenCalledOnce();
+  });
+
+  it("keeps working for the standalone demo, which has no sessions", async () => {
+    vi.stubEnv("VITALS_AUTH_SECRET", "");
+    expect((await POST(withCookie(png()))).status).toBe(200);
   });
 });

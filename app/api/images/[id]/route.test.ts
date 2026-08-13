@@ -23,6 +23,17 @@ describe("GET /api/images/[id]", () => {
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
   });
 
+  // These bytes can be a private deck's card or a member's avatar, and the only
+  // thing standing between them and a stranger is an unguessable id. `public`
+  // handed a year-long copy to every shared cache on the path, where the id is
+  // no longer the secret it was relied on to be.
+  it("keeps the bytes out of shared caches", async () => {
+    getImage.mockResolvedValue({ bytes: new Uint8Array([1]), contentType: "image/png" });
+    const cache = (await call("img_1")).headers.get("Cache-Control") ?? "";
+    expect(cache).toContain("private");
+    expect(cache).not.toContain("public");
+  });
+
   it("404s an unknown id", async () => {
     getImage.mockResolvedValue(undefined);
     expect((await call("img_missing")).status).toBe(404);

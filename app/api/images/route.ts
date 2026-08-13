@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { recordAudit } from "@/lib/audit";
+import { enterRequest } from "@/lib/auth";
 import { putImage } from "@/lib/images";
 import { flaggedReason, moderateImage } from "@/lib/moderation";
+import { getViewer } from "@/lib/profile";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -20,8 +22,18 @@ function sniffImage(b: Uint8Array): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  await enterRequest(req);
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
+  }
+  // This was the one write route with no session requirement, gated only on
+  // VELLUM_DEMO_MODE — which every real deployment sets. proxy.ts covers it
+  // now, but a store write must not depend on a gate one file away: with
+  // OPENAI_API_KEY unset lib/moderation skips entirely, and /api/images/[id]
+  // serves immutable for a year, so an unowned upload is a permanent public
+  // URL on the HOSA domain.
+  if (!getViewer().owner) {
+    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
   const rl = rateLimit(`images:${clientIp(req)}`, 30, 60_000);
   if (!rl.ok) {
