@@ -5,7 +5,9 @@ import * as React from "react";
 
 import type { QuizMeta } from "@/lib/quizzes";
 import { withBack } from "@/lib/return-to";
-import { DEMO_VIEWER, canEdit, canManageSharing } from "@/lib/visibility";
+import { canEdit, canManageSharing } from "@/lib/visibility";
+
+import { useViewer } from "./use-viewer";
 
 import { FavoriteButton } from "./favorite-button";
 import { ShareDialog, type ShareTarget } from "./share-dialog";
@@ -14,12 +16,14 @@ import { useDashboardReturn } from "./use-return-to";
 const VIS_LABEL = { public: "Public", chapter: "Chapter", private: "Private" } as const;
 
 export function QuizzesView() {
+  const viewer = useViewer();
   // Everything this list opens carries the way back to it (role + section
   // included), so finishing a quiz returns here instead of the dashboard's
   // default landing section.
   const backHref = useDashboardReturn("quizzes");
   const [quizzes, setQuizzes] = React.useState<QuizMeta[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [share, setShare] = React.useState<ShareTarget | null>(null);
   const [flash, setFlashMsg] = React.useState<string | null>(null);
@@ -32,22 +36,36 @@ export function QuizzesView() {
   }, []);
   React.useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
+  // A failed load used to fall through to quizzes = [], which renders as "No
+  // quizzes yet - create the first one": an outage told as the fact that you
+  // have written none.
   const load = React.useCallback(async () => {
     const res = await fetch("/api/quizzes", { cache: "no-store" }).catch(() => null);
-    if (res?.ok) setQuizzes((await res.json()).quizzes);
+    if (res?.ok) {
+      setQuizzes((await res.json()).quizzes);
+      setLoadError(false);
+    } else {
+      setLoadError(true);
+    }
     setLoading(false);
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   React.useEffect(() => { void load(); }, [load]);
 
+  // Not optimistic: the tile used to disappear on click and quietly come back
+  // if the server refused, which reads as the list glitching rather than the
+  // delete being denied. The quiz stays until the server confirms.
   async function del(id: string) {
     if (busyId) return;
     if (typeof window !== "undefined" && !window.confirm("Delete this quiz?")) return;
     setBusyId(id);
-    setQuizzes((q) => q.filter((x) => x.id !== id));
     const res = await fetch(`/api/quizzes/${id}`, { method: "DELETE" }).catch(() => null);
-    if (!res?.ok) await load();
     setBusyId(null);
+    if (!res?.ok) {
+      setFlash("Couldn't delete that quiz. It's still here.");
+      return;
+    }
+    setQuizzes((q) => q.filter((x) => x.id !== id));
   }
 
   async function copy(q: QuizMeta) {
@@ -77,14 +95,18 @@ export function QuizzesView() {
       {flash && <p className="dash-sub" role="status" style={{ marginBottom: 12 }}>{flash}</p>}
       {loading ? (
         <div className="empty-state">Loading...</div>
+      ) : loadError ? (
+        <div className="empty-state">
+          Couldn&apos;t load your quizzes. <button type="button" className="btn" onClick={() => void load()}>Retry</button>
+        </div>
       ) : quizzes.length === 0 ? (
         <div className="empty-state">No quizzes yet - create the first one.</div>
       ) : (
         <div className="tile-grid">
           {quizzes.map((q) => {
-            const editable = q.id !== "sample-quiz" && canEdit(q, DEMO_VIEWER);
-            const canShare = q.id !== "sample-quiz" && canManageSharing(q, DEMO_VIEWER);
-            const mine = q.owner === DEMO_VIEWER.owner;
+            const editable = q.id !== "sample-quiz" && canEdit(q, viewer);
+            const canShare = q.id !== "sample-quiz" && canManageSharing(q, viewer);
+            const mine = q.owner === viewer.owner;
             return (
               <div key={q.id} className="tile" data-testid={`quiz-${q.id}`}>
                 <div className="tile-thumb">

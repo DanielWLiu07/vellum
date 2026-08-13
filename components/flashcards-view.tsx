@@ -5,7 +5,9 @@ import * as React from "react";
 
 import type { DeckMeta } from "@/lib/decks";
 import { withBack } from "@/lib/return-to";
-import { DEMO_VIEWER, canEdit, canManageSharing } from "@/lib/visibility";
+import { canEdit, canManageSharing } from "@/lib/visibility";
+
+import { useViewer } from "./use-viewer";
 
 import { FavoriteButton } from "./favorite-button";
 import { ShareDialog, type ShareTarget } from "./share-dialog";
@@ -14,11 +16,13 @@ import { useDashboardReturn } from "./use-return-to";
 const VIS_LABEL = { public: "Public", chapter: "Chapter", private: "Private" } as const;
 
 export function FlashcardsView() {
+  const viewer = useViewer();
   // Study and edit links carry the way back to this list (role + section), so
   // clearing a deck returns here.
   const backHref = useDashboardReturn("flashcards");
   const [decks, setDecks] = React.useState<DeckMeta[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [share, setShare] = React.useState<ShareTarget | null>(null);
   const [flash, setFlashMsg] = React.useState<string | null>(null);
@@ -32,22 +36,36 @@ export function FlashcardsView() {
   }, []);
   React.useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
+  // A failed load used to fall through to decks = [], which renders as "No
+  // decks yet - create the first one": an outage told as the fact that your
+  // library is empty, to someone who may have built it.
   const load = React.useCallback(async () => {
     const res = await fetch("/api/decks", { cache: "no-store" }).catch(() => null);
-    if (res?.ok) setDecks((await res.json()).decks);
+    if (res?.ok) {
+      setDecks((await res.json()).decks);
+      setLoadError(false);
+    } else {
+      setLoadError(true);
+    }
     setLoading(false);
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   React.useEffect(() => { void load(); }, [load]);
 
+  // Not optimistic: the tile used to disappear on click and quietly come back
+  // if the server refused, which reads as the list glitching rather than the
+  // delete being denied. The deck stays until the server confirms.
   async function del(id: string) {
     if (busyId) return;
     if (typeof window !== "undefined" && !window.confirm("Delete this deck?")) return;
     setBusyId(id);
-    setDecks((d) => d.filter((x) => x.id !== id));
     const res = await fetch(`/api/decks/${id}`, { method: "DELETE" }).catch(() => null);
-    if (!res?.ok) await load();
     setBusyId(null);
+    if (!res?.ok) {
+      setFlash("Couldn't delete that deck. It's still here.");
+      return;
+    }
+    setDecks((d) => d.filter((x) => x.id !== id));
   }
 
   async function copy(d: DeckMeta) {
@@ -77,14 +95,18 @@ export function FlashcardsView() {
       {flash && <p className="dash-sub" role="status" style={{ marginBottom: 12 }}>{flash}</p>}
       {loading ? (
         <div className="empty-state">Loading...</div>
+      ) : loadError ? (
+        <div className="empty-state">
+          Couldn&apos;t load your decks. <button type="button" className="btn" onClick={() => void load()}>Retry</button>
+        </div>
       ) : decks.length === 0 ? (
         <div className="empty-state">No decks yet - create the first one.</div>
       ) : (
         <div className="tile-grid">
           {decks.map((d) => {
-            const editable = d.id !== "sample-deck" && canEdit(d, DEMO_VIEWER);
-            const canShare = d.id !== "sample-deck" && canManageSharing(d, DEMO_VIEWER);
-            const mine = d.owner === DEMO_VIEWER.owner;
+            const editable = d.id !== "sample-deck" && canEdit(d, viewer);
+            const canShare = d.id !== "sample-deck" && canManageSharing(d, viewer);
+            const mine = d.owner === viewer.owner;
             return (
               <div key={d.id} className="tile" data-testid={`deck-${d.id}`}>
                 <div className="tile-thumb">

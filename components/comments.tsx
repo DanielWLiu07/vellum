@@ -2,6 +2,9 @@
 
 import * as React from "react";
 
+import { useNames } from "./use-names";
+
+/** `author` is an identity id, not a name — resolve it before showing it. */
 type Comment = { id: string; author: string; body: string; at: number };
 
 function ago(ms: number): string {
@@ -24,6 +27,7 @@ export function Comments({ type, target }: { type: "doc" | "module"; target: str
   // Who am I (for the delete affordance). Default demo owner is "you".
   const [viewer, setViewer] = React.useState("you");
   const [admin, setAdmin] = React.useState(false);
+  const { name } = useNames();
 
   React.useEffect(() => {
     let live = true;
@@ -111,8 +115,10 @@ export function Comments({ type, target }: { type: "doc" | "module"; target: str
           {comments.map((c) => (
             <li key={c.id} className="comment">
               <div className="comment-head">
-                <span className="comment-author">{c.author}</span>
+                <span className="comment-author">{name(c.author)}</span>
                 <span className="comment-time">{ago(c.at)}</span>
+                {/* Ownership still compares ids. The name is presentation, and
+                    two members can share one — it never decides authorship. */}
                 {(admin || c.author === viewer) && (
                   <button type="button" className="link-btn link-danger comment-del" onClick={() => del(c.id)}>Delete</button>
                 )}

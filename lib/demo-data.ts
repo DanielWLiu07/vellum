@@ -18,41 +18,15 @@ export const ROLES: { id: Role; label: string; blurb: string }[] = [
   { id: "admin", label: "Admin", blurb: "Everyone, everything, and platform health." },
 ];
 
-export interface ChapterInfo {
-  name: string;
-  region: string;
-  advisor: string;
-  members: number;
-  nextEvent: { name: string; date: string };
-  announcement: string;
-}
-
-export const CHAPTER: ChapterInfo = {
-  name: "Toronto Central",
-  region: "HOSA Canada - Ontario",
-  advisor: "Coach Rivera",
-  members: 38,
-  nextEvent: { name: "Fall Leadership Conference (online)", date: "Nov 14" },
-  announcement: "FLC registration is open. Confirm your competitive events with your advisor by Oct 20.",
-};
-
-export interface AdminUser {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-}
-
-export const ADMIN_USERS: AdminUser[] = [
-  { id: "u1", name: "Coach Rivera", email: "rivera@school.ca", role: "trainer" },
-  { id: "u2", name: "Ms. Lefebvre", email: "lefebvre@school.ca", role: "advisor" },
-  { id: "u3", name: "Ada Okafor", email: "ada@school.ca", role: "student" },
-  { id: "u4", name: "Daniel Liu", email: "daniel@hosacanada.org", role: "admin" },
-];
-
-export const ADMIN_STATS = [
-  { label: "Documents", value: "1,284" },
-  { label: "Members", value: "3,907" },
-  { label: "Trainers", value: "112" },
-  { label: "Chapters", value: "48" },
-];
+// Nothing illustrative is left in this file, and that is deliberate.
+//
+// CHAPTER put "Toronto Central", advisor "Coach Rivera" and a "confirm your
+// events by Oct 20" deadline on the home page of every member in every
+// chapter. ADMIN_USERS and ADMIN_STATS did the same for the admin console —
+// four invented people and four typed-in totals ("3,907 Members").
+//
+// All three now read the signed session and the real roster
+// (components/chapter-summary, components/admin-console). They are deleted
+// rather than left here, so nothing can be wired back in by mistake. Fields
+// with no source in Vitals — chapter region, next event, announcements — were
+// dropped, not replaced: HOSA owns that data and there is no feed for it yet.
