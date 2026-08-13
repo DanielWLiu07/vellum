@@ -26,7 +26,12 @@ const NAMES: Record<MemberRole, string> = {
 // (?as=admin) - i.e. there was no configuration that gave HOSA a working
 // deployment without a public become-admin faucet. A real deployment sets
 // VELLUM_DEMO_MODE=1 and leaves VELLUM_DEMO_SIGNIN unset.
-export function demoSignInEnabled(): boolean {
+//
+// Module-private, and deliberately so: this is a route module, where App Router
+// treats the exported names as the route's contract (GET/POST/…, runtime,
+// dynamic). A stray export here isn't a public API anyone can reach, it's just
+// a name Next has to ignore. The gate is read once, immediately below.
+function demoSignInEnabled(): boolean {
   return process.env.VELLUM_DEMO_SIGNIN === "1";
 }
 

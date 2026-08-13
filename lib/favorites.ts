@@ -1,10 +1,12 @@
 /**
  * Per-user resource favorites ("saved" / likes). Kept as a sidecar keyed by
  * (owner, resourceId) - exactly like resource-share - so the storage layers
- * stay untouched. With Vitals's single demo identity this is your personal
- * saved list; the same (owner, resource) shape becomes real social like-counts
- * the day multiple users exist, since favoriteCount() already aggregates across
- * owners. Demo-grade in-memory (globalThis), like the other stores.
+ * stay untouched. Each owner's set is their own saved list, and because
+ * favoriteCount() aggregates across owners the same rows are the public
+ * like-count on a resource. That second reading is why /api/favorites resolves
+ * an id and checks canView before writing: an unvalidated write here is a
+ * number other members are shown. In-memory (globalThis) with a snapshot, like
+ * the other stores.
  */
 
 import { isHydrated, registerHydrator } from "./durable";

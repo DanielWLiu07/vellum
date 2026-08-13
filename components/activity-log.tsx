@@ -35,6 +35,11 @@ const ACTION_LABEL: Record<string, string> = {
 
 interface ModerationStatus {
   configured: boolean;
+  /** Key present but the last call didn't get through — on, and not working. */
+  degraded?: boolean;
+  lastStatus?: number;
+  /** Items queued because nobody could examine them, not because of a verdict. */
+  heldUnchecked?: number;
   blockedCount: number;
 }
 
@@ -48,28 +53,49 @@ function ago(ms: number): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
+interface StorageStatus {
+  backend: "s3" | "r2" | "memory";
+  durable: boolean;
+}
+
 export function ActivityLog() {
   const [events, setEvents] = React.useState<AuditEvent[]>([]);
   const [moderation, setModeration] = React.useState<ModerationStatus | null>(null);
+  const [storage, setStorage] = React.useState<StorageStatus | null>(null);
   const [filter, setFilter] = React.useState<"all" | "blocked">("all");
   const [loading, setLoading] = React.useState(true);
+  /**
+   * The most consequential silent failure of the group, and the reason this
+   * one gets a flag of its own rather than falling through to an empty list.
+   *
+   * Everywhere else a dropped fetch costs a member a list they can reload. Here
+   * it costs an ADMIN the exact thing they opened the page to check. "No
+   * activity yet." and "No content has been blocked." are not neutral blanks:
+   * they are specific, reassuring claims that nothing has been uploaded,
+   * blocked, or deleted. A failed /api/audit produced that reassurance while
+   * the log went entirely unread — worse than showing nothing, because a clean
+   * audit trail is what an admin is hoping to see and the thing most likely to
+   * stop them looking further.
+   */
+  const [error, setError] = React.useState(false);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const res = await fetch("/api/audit", { cache: "no-store" }).catch(() => null);
-      if (cancelled) return;
-      if (res?.ok) {
-        const data = await res.json();
-        setEvents(data.events ?? []);
-        setModeration(data.moderation ?? null);
-      }
+  const load = React.useCallback(async () => {
+    const res = await fetch("/api/audit", { cache: "no-store" }).catch(() => null);
+    const data = res?.ok ? await res.json().catch(() => null) : null;
+    if (!data) {
+      setError(true);
       setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
+      return;
+    }
+    setEvents(data.events ?? []);
+    setModeration(data.moderation ?? null);
+    setStorage(data.storage ?? null);
+    setError(false);
+    setLoading(false);
   }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  React.useEffect(() => { void load(); }, [load]);
 
   const shown = filter === "blocked" ? events.filter((e) => isModerationBlock(e.action)) : events;
 
@@ -77,18 +103,52 @@ export function ActivityLog() {
     <section className="role-section">
       <div className="section-head">
         <h2>Audit trail</h2>
-        <span className="section-count">{events.length} recent actions</span>
+        {/* A count of what we failed to fetch is still a count, and "0 recent
+            actions" is the same false all-clear as the empty state below. */}
+        <span className="section-count">{error ? "unavailable" : `${events.length} recent actions`}</span>
       </div>
 
       {/* Moderation report: is AI moderation on, and how much has it blocked. */}
       {moderation ? (
         <div className="mod-status" data-testid="mod-status">
-          <span className={`mod-status-dot${moderation.configured ? " on" : ""}`} aria-hidden />
+          {/* Three states, not two. "On" used to mean only that a key was set,
+              so a completely unreachable endpoint still read as healthy. */}
+          <span
+            className={`mod-status-dot${moderation.configured && !moderation.degraded ? " on" : ""}`}
+            aria-hidden
+          />
           <span className="mod-status-text">
-            AI moderation: <strong>{moderation.configured ? "On" : "Off"}</strong>
+            AI moderation:{" "}
+            <strong>
+              {!moderation.configured ? "Off" : moderation.degraded ? "Not responding" : "On"}
+            </strong>
+            {moderation.degraded ? (
+              <>
+                {" "}
+                — calls are failing
+                {moderation.lastStatus ? ` (HTTP ${moderation.lastStatus})` : ""}, so uploads are
+                being held for review instead of checked.
+              </>
+            ) : null}
           </span>
           <span className="mod-status-count">
             {moderation.blockedCount} item{moderation.blockedCount === 1 ? "" : "s"} blocked
+            {moderation.heldUnchecked
+              ? ` · ${moderation.heldUnchecked} held unchecked`
+              : ""}
+          </span>
+        </div>
+      ) : null}
+
+      {/* Blob storage has no snapshot to fail loudly, so without this an
+          instance quietly losing every upload looks identical to a healthy
+          one — right up until a member reports a missing file. */}
+      {storage && !storage.durable ? (
+        <div className="mod-status" data-testid="storage-status">
+          <span className="mod-status-dot" aria-hidden />
+          <span className="mod-status-text">
+            Uploads: <strong>not durable</strong> — held in memory only. They are lost on the next
+            restart and are invisible to other instances now. Configure R2 or S3 object storage.
           </span>
         </div>
       ) : null}
@@ -114,6 +174,12 @@ export function ActivityLog() {
 
       {loading ? (
         <div className="empty-state">Loading...</div>
+      ) : error ? (
+        <div className="empty-state">
+          Couldn&apos;t load the audit trail. This is not an empty log — nothing here has been
+          read, so treat it as unknown rather than clear.{" "}
+          <button type="button" className="btn" onClick={() => { setLoading(true); void load(); }}>Retry</button>
+        </div>
       ) : shown.length === 0 ? (
         <div className="empty-state">
           {filter === "blocked" ? "No content has been blocked." : "No activity yet."}

@@ -4,6 +4,7 @@ import { enterRequest } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { getDoc } from "@/lib/store";
+import { resolveWatermark } from "@/lib/settings";
 import { mintToken } from "@/lib/token";
 import { getViewer } from "@/lib/profile";
 import { canView } from "@/lib/visibility";
@@ -35,7 +36,10 @@ export async function POST(req: NextRequest) {
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   if (!canView(doc, getViewer())) return NextResponse.json({ error: "not_found" }, { status: 404 }); // no existence leak
 
-  const watermark = typeof body?.watermark === "string" ? body.watermark.slice(0, 120) : "";
+  // "Require watermark on shares": an explicit watermark always wins; the
+  // fallback only fills in when the setting demands one and none was given.
+  const requestedWatermark = typeof body?.watermark === "string" ? body.watermark.slice(0, 120) : "";
+  const watermark = resolveWatermark(requestedWatermark, getViewer().owner);
   const ttlMinutes = Math.min(60, Math.max(1, Number(body?.ttlMinutes) || 15));
 
   const token = mintToken(secret, {

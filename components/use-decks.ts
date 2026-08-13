@@ -36,13 +36,27 @@ export function useDecks() {
     return null;
   }, [load]);
 
-  const del = React.useCallback(async (id: string): Promise<void> => {
+  /**
+   * Delete a deck. Returns null on success, or a message to show on failure.
+   *
+   * Deliberately NOT optimistic. Removing the tile first and reloading it back
+   * on failure meant a refused delete rendered as a card that vanished and
+   * returned on its own, with nothing said either way — the list looked buggy
+   * rather than the delete looking refused. The deck now stays put until the
+   * server confirms it is gone.
+   *
+   * NOTE: components/dashboard.tsx discards this return value, so a refused
+   * delete is still unexplained there. The tile correctly survives now, which
+   * is the important half; wiring the message up is a change to that file.
+   */
+  const del = React.useCallback(async (id: string): Promise<string | null> => {
     setBusyId(id);
-    setDecks((d) => d.filter((x) => x.id !== id));
     const res = await fetch(`/api/decks/${id}`, { method: "DELETE" }).catch(() => null);
-    if (!res?.ok) await load();
     setBusyId(null);
-  }, [load]);
+    if (!res?.ok) return "Couldn't delete that deck. It's still here.";
+    setDecks((d) => d.filter((x) => x.id !== id));
+    return null;
+  }, []);
 
   return { decks, load, copy, del, busyId };
 }

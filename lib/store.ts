@@ -5,10 +5,12 @@
  * documents. Its *dashboard* mode needs somewhere to put uploads so you can
  * manage + share them. This layer stitches together two sources:
  *   - bundled samples (served from /public, defined here)
- *   - uploads, held by the active storage backend (in-memory or R2 - see
- *     ./storage). Set the R2_* env vars to make uploads durable.
+ *   - uploads, held by the active storage backend (see ./storage, which picks
+ *     S3 first, then R2, then an in-memory store). Set the S3_* or R2_* env
+ *     vars to make uploads durable; without them they are lost on restart.
  */
 
+import { statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -43,12 +45,30 @@ export interface DocMeta {
   folderId?: string;
 }
 
+/**
+ * Byte size of a bundled sample, read off the artifact itself.
+ *
+ * public/sample.pdf is *generated* (npm run sample:pdf), so any literal here
+ * goes stale the moment someone edits the generator - it already had, by 5
+ * bytes. Reading the real file keeps the size the dashboard shows honest.
+ * Stat'd once at module load rather than per request; falls back to 0 if the
+ * file is absent so a missing artifact degrades to a wrong size rather than
+ * taking down every route that imports the store.
+ */
+function bundledSize(publicPath: string): number {
+  try {
+    return statSync(path.join(process.cwd(), "public", publicPath)).size;
+  } catch {
+    return 0;
+  }
+}
+
 const BUNDLED: DocMeta[] = [
   {
     id: "sample",
     name: "Vitals - overview (sample)",
     publicPath: "/sample.pdf",
-    sizeBytes: 2553,
+    sizeBytes: bundledSize("/sample.pdf"),
     uploadedAt: 0,
     bundled: true,
     contentType: "application/pdf",

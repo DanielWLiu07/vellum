@@ -37,6 +37,9 @@ export function AssignModal({ member, docs, onClose, onChanged, notify }: {
   const [due, setDue] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [lists, setLists] = useState<Record<AssignmentKind, Choice[]> | null>(null);
+  // Which kinds could not be fetched, as opposed to came back empty. Tracked
+  // per kind because one endpoint failing says nothing about the others.
+  const [failedKinds, setFailedKinds] = useState<Set<AssignmentKind>>(new Set());
   // What this member already has — the same list the API will refuse to
   // duplicate, and where Unassign lives.
   const { assignments, loading: loadingAssigned, error: assignedError, reload } = useAssignments(member.id);
@@ -44,9 +47,12 @@ export function AssignModal({ member, docs, onClose, onChanged, notify }: {
   useEffect(() => {
     let live = true;
     void (async () => {
-      const get = async (url: string, key: string): Promise<Choice[]> => {
+      // null means the fetch failed, which is NOT the same as an empty list.
+      // Collapsing the two sent a failure out as "No module content to assign
+      // yet", and a trainer would stop looking for content that exists.
+      const get = async (url: string, key: string): Promise<Choice[] | null> => {
         const res = await fetch(url, { cache: "no-store" }).catch(() => null);
-        if (!res?.ok) return [];
+        if (!res?.ok) return null;
         const body = await res.json().catch(() => null);
         const rows = (body?.[key] ?? []) as { id: string; title: string }[];
         return rows.map((r) => ({ id: r.id, title: r.title }));
@@ -57,10 +63,15 @@ export function AssignModal({ member, docs, onClose, onChanged, notify }: {
         get("/api/quizzes", "quizzes"),
       ]);
       if (!live) return;
+      const failed = new Set<AssignmentKind>();
+      if (modules === null) failed.add("module");
+      if (decks === null) failed.add("deck");
+      if (quizzes === null) failed.add("quiz");
+      setFailedKinds(failed);
       setLists({
-        module: modules,
-        deck: decks,
-        quiz: quizzes,
+        module: modules ?? [],
+        deck: decks ?? [],
+        quiz: quizzes ?? [],
         doc: docs.map((d) => ({ id: d.id, title: d.name })),
       });
     })();
@@ -133,7 +144,11 @@ export function AssignModal({ member, docs, onClose, onChanged, notify }: {
           {!lists ? (
             <p className="dash-muted">Loading content...</p>
           ) : choices.length === 0 ? (
-            <p className="dash-muted">No {KIND_LABEL[kind].toLowerCase()} content to assign yet.</p>
+            <p className="dash-muted">
+              {failedKinds.has(kind)
+                ? `Couldn't load ${KIND_LABEL[kind].toLowerCase()} content. Close and reopen this to try again.`
+                : `No ${KIND_LABEL[kind].toLowerCase()} content to assign yet.`}
+            </p>
           ) : (
             choices.map((c) => (
               <button

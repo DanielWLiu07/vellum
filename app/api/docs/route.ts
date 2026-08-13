@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 
 // The dashboard's document list (metadata only, never the bytes). Scoped to what
 // the viewer is allowed to see so private and other-chapter docs are not leaked.
-// The viewer is a demo identity here; in production it comes from the session.
+// getViewer() is the signed session (lib/profile) — the demo identity this used
+// to describe is gone.
 export async function GET(req: NextRequest) {
   await enterRequest(req);
   if (process.env.VELLUM_DEMO_MODE !== "1") {

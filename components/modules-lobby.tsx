@@ -34,22 +34,31 @@ export function ModulesLobby({ admin }: { admin: boolean }) {
   const [modules, setModules] = React.useState<ModuleMeta[] | null>(null);
   const [progress, setProgress] = React.useState<Record<string, number>>({});
   const [busy, setBusy] = React.useState(false);
+  // `modules === null` is the "still loading" state, so a dropped fetch left
+  // the list spinning forever with no way back short of a page reload. The
+  // failure needs its own flag to be sayable at all.
+  const [loadError, setLoadError] = React.useState(false);
+  // Kept apart from loadError: a refused CREATE must not blank out a module
+  // list that loaded perfectly well.
+  const [createError, setCreateError] = React.useState<string | null>(null);
   const router = useRouter();
 
   const load = React.useCallback(async () => {
     const res = await fetch("/api/modules", { cache: "no-store" }).catch(() => null);
     const j = res?.ok ? await res.json().catch(() => null) : null;
-    if (Array.isArray(j?.modules)) setModules(j.modules);
+    if (Array.isArray(j?.modules)) {
+      setModules(j.modules);
+      setLoadError(false);
+      return;
+    }
+    setLoadError(true);
   }, []);
 
-  React.useEffect(() => {
-    let live = true;
-    fetch("/api/modules", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (live && Array.isArray(j?.modules)) setModules(j.modules); })
-      .catch(() => {});
-    return () => { live = false; };
-  }, []);
+  // One loader for mount and for retry. The separate inline fetch this replaces
+  // swallowed its own failure, so the only path that could report one was the
+  // path nothing called on mount.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  React.useEffect(() => { void load(); }, [load]);
 
   // Progress is per-browser, so it can only be read after mount — doing it in
   // an effect keeps the server and first client render identical.
@@ -59,10 +68,16 @@ export function ModulesLobby({ admin }: { admin: boolean }) {
     setProgress(readProgress(modules.map((m) => m.id)));
   }, [modules]);
 
+  // Creating is admin-only on the server, but "+ New module" is rendered from
+  // the PREVIEWED role, so any member previewing admin can reach this and be
+  // refused. Falling through to load() meant they typed a title, pressed OK,
+  // and watched nothing at all happen — a refusal that reads as a broken
+  // button. Name the refusal instead, and say what the switcher actually does.
   async function newModule() {
     const title = window.prompt("New module title");
     if (!title || !title.trim()) return;
     setBusy(true);
+    setCreateError(null);
     try {
       const res = await fetch("/api/modules", {
         method: "POST",
@@ -70,8 +85,15 @@ export function ModulesLobby({ admin }: { admin: boolean }) {
         body: JSON.stringify({ title: title.trim() }),
       }).catch(() => null);
       const j = res?.ok ? await res.json().catch(() => null) : null;
-      if (j?.id) router.push(withBack(`/modules/${j.id}/edit`, backHref));
-      else await load();
+      if (j?.id) {
+        router.push(withBack(`/modules/${j.id}/edit`, backHref));
+        return;
+      }
+      setCreateError(
+        res?.status === 403
+          ? "Your account can't create modules. The role switcher only previews a view; the server checks the role on your session."
+          : "Couldn't create that module. Try again.",
+      );
     } finally {
       setBusy(false);
     }
@@ -88,7 +110,13 @@ export function ModulesLobby({ admin }: { admin: boolean }) {
         sections listed down the side.
       </p>
 
-      {modules === null ? (
+      {createError && <p className="upload-error" role="alert">{createError}</p>}
+
+      {loadError ? (
+        <div className="empty-state">
+          Couldn&apos;t load modules. <button type="button" className="btn" onClick={() => void load()}>Retry</button>
+        </div>
+      ) : modules === null ? (
         <div className="empty-state">Loading...</div>
       ) : modules.length === 0 ? (
         <div className="empty-state">{admin ? "No modules yet. Click + New module to build one." : "No modules published yet."}</div>

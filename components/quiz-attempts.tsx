@@ -57,38 +57,41 @@ export function QuizAttempts({ quizId, backHref = RETURN_TO.quizzes }: {
   const [attempts, setAttempts] = React.useState<Attempt[] | null>(null);
   const [denied, setDenied] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
+  // `attempts === null` doubles as "still loading", so a dropped fetch sat on
+  // "Loading attempts..." indefinitely — indistinguishable from a slow server,
+  // and with no retry short of a page reload.
+  const [error, setError] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     const res = await fetch(`/api/quizzes/${quizId}/attempts`, { cache: "no-store" }).catch(() => null);
-    if (!res) return;
+    if (!res) {
+      setError("Couldn't reach Vitals to load the attempts.");
+      return;
+    }
     if (res.status === 404 || res.status === 403) {
       setDenied(true);
       return;
     }
     const j = await res.json().catch(() => null);
-    if (Array.isArray(j?.attempts)) setAttempts(j.attempts);
+    if (!Array.isArray(j?.attempts)) {
+      setError("Couldn't load the attempts for this exam.");
+      return;
+    }
+    setAttempts(j.attempts);
+    setError(null);
   }, [quizId]);
 
-  React.useEffect(() => {
-    let live = true;
-    fetch(`/api/quizzes/${quizId}/attempts`, { cache: "no-store" })
-      .then(async (res) => {
-        if (!live) return;
-        if (res.status === 404 || res.status === 403) {
-          setDenied(true);
-          return;
-        }
-        const j = await res.json().catch(() => null);
-        if (live && Array.isArray(j?.attempts)) setAttempts(j.attempts);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [quizId]);
+  // One loader for mount and for retry; the inline duplicate this replaces
+  // discarded its own failure.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  React.useEffect(() => { void load(); }, [load]);
 
+  // Voiding and reinstating decide whether a student's exam counts, so a
+  // refusal that shows nothing is the last thing a reviewer needs: the row is
+  // left exactly as it was, which reads as the click missing.
   async function setVoid(attemptId: string, makeVoid: boolean) {
     setBusyId(attemptId);
+    setError(null);
     try {
       const res = await fetch(`/api/quizzes/${quizId}/attempts`, {
         method: "PATCH",
@@ -96,6 +99,7 @@ export function QuizAttempts({ quizId, backHref = RETURN_TO.quizzes }: {
         body: JSON.stringify(makeVoid ? { attemptId, void: true, reason: "Voided by reviewer" } : { attemptId, void: false }),
       }).catch(() => null);
       if (res?.ok) await load();
+      else setError(makeVoid ? "Couldn't void that attempt. It still counts." : "Couldn't reinstate that attempt. It's still voided.");
     } finally {
       setBusyId(null);
     }
@@ -107,6 +111,18 @@ export function QuizAttempts({ quizId, backHref = RETURN_TO.quizzes }: {
         <h1 className="upload-h">Attempts unavailable</h1>
         <p className="dash-sub">This quiz doesn&apos;t exist, or you&apos;re not its owner. Only the owner or an admin can review exam attempts.</p>
         <Link className="btn" href={backHref}>← {backLabel}</Link>
+      </div>
+    );
+  }
+  if (error && !attempts) {
+    return (
+      <div className="upload-card">
+        <h1 className="upload-h">Couldn&apos;t load attempts</h1>
+        <p className="dash-sub">{error}</p>
+        <div className="upload-actions">
+          <button type="button" className="btn primary" onClick={() => void load()}>Retry</button>
+          <Link className="btn" href={backHref}>← {backLabel}</Link>
+        </div>
       </div>
     );
   }
@@ -122,6 +138,10 @@ export function QuizAttempts({ quizId, backHref = RETURN_TO.quizzes }: {
         Integrity flags are advisory (client-reported). Attempts with several serious flags are auto-voided for your
         review; you can void or reinstate any attempt.
       </p>
+
+      {/* A void/reinstate that failed after the list already loaded. Shown here
+          rather than replacing the list, which is still accurate. */}
+      {error && <p className="upload-error" role="alert">{error}</p>}
 
       {attempts.length === 0 ? (
         <div className="empty-state">No one has taken this exam yet.</div>

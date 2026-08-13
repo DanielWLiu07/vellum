@@ -8,6 +8,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DOC_SORTS, matchesQuery, sortDocs, type DocSort } from "@/lib/resource-list";
 
 import { ActivityLog } from "./activity-log";
+import { AdminOverview, AdminUsers } from "./admin-console";
+import { AdminSettings } from "./admin-settings";
 import { CardThumb } from "./card-thumb";
 import { FavoriteButton } from "./favorite-button";
 import { useFavorites } from "./favorites-context";
@@ -19,9 +21,12 @@ import { useFolders } from "./use-folders";
 import { QuizzesView } from "./quizzes-view";
 import { SkillsView } from "./buzzer-game";
 import { FeedbackView } from "./feedback-view";
+import { ModerationView } from "./moderation-view";
+import { MyAttempts } from "./my-attempts";
 import { ModulesLobby } from "./modules-lobby";
 import { AssignModal } from "./assign-modal";
 import { ChapterView } from "./chapter-view";
+import { ChapterSummary } from "./chapter-summary";
 import {
   completeAssignment,
   formatDue,
@@ -32,13 +37,14 @@ import {
   type Assignment,
   type RosterMember,
 } from "./use-assignments";
-import { initials } from "@/lib/avatar";
+import { useNames } from "./use-names";
+import { useViewer } from "./use-viewer";
 import { DashSidebar } from "@/components/dash-sidebar";
 import { OfficialGuidelinesView } from "@/components/official-guidelines-view";
+import { adminAccess } from "@/lib/admin-gate";
 import { DEFAULT_SECTION, roleFromParam, sectionFromParam } from "@/lib/nav";
 import { useModal } from "./use-modal";
 import {
-  DEMO_VIEWER,
   canEdit,
   canManageSharing,
   filterScoped,
@@ -46,14 +52,7 @@ import {
   type PersonShare,
   type Visibility,
 } from "@/lib/visibility";
-import {
-  ADMIN_STATS,
-  ADMIN_USERS,
-  CHAPTER,
-  ROLES,
-  type AdminUser,
-  type Role,
-} from "@/lib/demo-data";
+import { ROLES, type Role } from "@/lib/demo-data";
 
 interface Doc {
   id: string;
@@ -170,7 +169,7 @@ const SHARED_SECTIONS = ["guidelines", "modules", "feedback", "chapter"];
 
 // Sections an advisor shares with students (they are a student too); anything
 // else in the advisor menu is advisor-only and renders in AdvisorView.
-const STUDENT_SECTIONS = new Set(["home", "assignments", "resources", "flashcards", "quizzes", "skills"]);
+const STUDENT_SECTIONS = new Set(["home", "assignments", "resources", "flashcards", "quizzes", "results", "skills"]);
 
 /* ---------------------------------------------------------------- toasts */
 
@@ -209,12 +208,6 @@ function syncUrl(role: Role, section: string) {
   window.history.replaceState(null, "", `${window.location.pathname}?${p}`);
 }
 
-const ADMIN_SETTINGS = [
-  { label: "Allow student uploads", desc: "Let students submit their own documents", on: false },
-  { label: "Require watermark on shares", desc: "Force a per-user watermark on every shared link", on: true },
-  { label: "Enable General skills (round 2)", desc: "Buzzer game live; skills in front of AI and more coming", on: true },
-];
-
 function ComingSoon({ title, note }: { title: string; note?: string }) {
   return (
     <div className="coming-soon" data-testid="coming-soon">
@@ -236,8 +229,24 @@ export function Dashboard() {
   const urlRole = roleFromParam(roleParam);
   const urlSection = sectionFromParam(urlRole, sectionParam);
 
+  // Two different notions of "role" live in this component, and conflating them
+  // was a hole a student could walk through:
+  //
+  //   `role`   - what the sidebar switcher is PREVIEWING. It is a menu-shape
+  //              affordance, it round-trips through ?role=, and anyone can set
+  //              it to "admin". It decides which sections appear, nothing more.
+  //   `access` - what the SIGNED session says, via /api/auth/me. The only thing
+  //              allowed to gate an admin surface.
   const [role, setRole] = useState<Role>(urlRole);
   const [section, setSection] = useState<string>(urlSection);
+  const me = useMe();
+  const access = adminAccess(me);
+  // Admin controls in the sections every role shares need BOTH: the session
+  // says admin, and the admin view is the one being asked for. Signing in is
+  // the privilege half; the preview is presentation, so an admin reading the
+  // student menu gets the student experience, which is the point of the
+  // switcher. Intersecting them can only ever take access away.
+  const adminControls = access === "granted" && role === "admin";
   const [docs, setDocs] = useState<Doc[]>([]);
   const [viewer, setViewer] = useState<string | null>(null);
   const [shareDoc, setShareDoc] = useState<Doc | null>(null);
@@ -290,15 +299,11 @@ export function Dashboard() {
   // (the deep-link effect above re-hydrates them).
   const viewQuery = `?back=${encodeURIComponent(`/dashboard?role=${role}&section=${section}`)}`;
 
-  const view = useCallback(async (docId: string, watermark = "") => {
-    const res = await fetch("/api/share", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: docId, watermark, ttlMinutes: 15 }),
-    });
-    if (res.ok) setViewer((await res.json()).embedUrl);
-    else notify("Couldn't open the document.");
-  }, [notify]);
+  // There is deliberately no "mint a token for this doc" helper here any more.
+  // ShareModal used to call one after minting its own, so Preview opened a
+  // second token built from defaults — the share options you had just set were
+  // minted, discarded, and then re-minted without them. The modal now shows the
+  // token it made, and setViewer is the whole of this component's part in it.
 
   const onUpload = async (file: File) => {
     setUploading(true);
@@ -335,7 +340,7 @@ export function Dashboard() {
 
   const active = ROLES.find((r) => r.id === role)!;
   const shared = {
-    docs, onView: view, onShare: setShareDoc, onShareScope: setShareScopeDoc, onDelete, onCopy, onUploadClick: pickFile,
+    docs, onShare: setShareDoc, onShareScope: setShareScopeDoc, onDelete, onCopy, onUploadClick: pickFile,
     uploading, loading, loadError, onRetry, viewQuery,
   };
 
@@ -360,21 +365,23 @@ export function Dashboard() {
           {/* Modules: the HOSA-authored official content, its own tab. Rendered
               here (all handlers in scope) so every role shares one view; admins
               get create/organize powers. */}
-          {section === "modules" && <ModulesLobby admin={role === "admin"} />}
-          {section === "feedback" && <FeedbackView admin={role === "admin"} />}
+          {section === "modules" && <ModulesLobby admin={adminControls} />}
+          {section === "feedback" && <FeedbackView admin={adminControls} />}
           {section === "chapter" && <ChapterView refreshToken={assignmentsVersion} onAssign={setAssignTo} />}
-          {!SHARED_SECTIONS.includes(section) && role === "student" && <StudentView section={section} docs={docs} viewQuery={viewQuery} notify={notify} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />}
+          {!SHARED_SECTIONS.includes(section) && role === "student" && <StudentView section={section} docs={docs} viewQuery={viewQuery} notify={notify} uploading={uploading} loading={loading} loadError={loadError} onRetry={onRetry} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />}
           {!SHARED_SECTIONS.includes(section) && role === "trainer" && <TrainerView section={section} {...shared} />}
           {!SHARED_SECTIONS.includes(section) && role === "advisor" && (STUDENT_SECTIONS.has(section)
-            ? <StudentView section={section} docs={docs} viewQuery={viewQuery} notify={notify} uploading={uploading} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />
+            ? <StudentView section={section} docs={docs} viewQuery={viewQuery} notify={notify} uploading={uploading} loading={loading} loadError={loadError} onRetry={onRetry} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />
             : <AdvisorView section={section} {...shared} />)}
-          {!SHARED_SECTIONS.includes(section) && role === "admin" && <AdminView section={section} {...shared} onRole={(n, r) => notify(`${n} → ${r}`)} />}
+          {!SHARED_SECTIONS.includes(section) && role === "admin" && (access === "granted"
+            ? <AdminView section={section} {...shared} />
+            : <AdminOnly access={access} signedRole={me?.id ? me.role : undefined} />)}
         </main>
       </div>
 
       {viewer && <ViewerModal src={viewer} onClose={() => setViewer(null)} />}
 
-      {shareDoc && <ShareModal doc={shareDoc} onClose={() => setShareDoc(null)} onView={view} notify={notify} />}
+      {shareDoc && <ShareModal doc={shareDoc} onClose={() => setShareDoc(null)} onPreview={setViewer} notify={notify} />}
       {shareScopeDoc && (
         <ShareDialog
           target={{
@@ -416,8 +423,29 @@ function StatusBadge({ status }: { status: string }) {
   const [label, tone] = map[status] ?? [status, "muted"];
   return <span className={`badge badge-${tone}`}>{label}</span>;
 }
-function ProgressBar({ value }: { value: number }) {
-  return <div className="bar" aria-label={`${value}%`}><div className="bar-fill" style={{ width: `${value}%` }} /></div>;
+/**
+ * aria-label on a roleless <div> is ignored, so this bar was invisible to a
+ * screen reader — a student's own assignment progress readable only by sight.
+ * `done`/`total` are optional so the percentage still works on its own, but
+ * passing them is better: "3 of 8 complete" is the figure someone is actually
+ * after, and it matches the fraction already rendered beside the bar.
+ */
+function ProgressBar({ value, done, total }: { value: number; done?: number; total?: number }) {
+  const text = typeof done === "number" && typeof total === "number"
+    ? `${done} of ${total} complete`
+    : `${value}%`;
+  return (
+    <div
+      className="bar"
+      role="progressbar"
+      aria-valuenow={value}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuetext={text}
+    >
+      <div className="bar-fill" style={{ width: `${value}%` }} />
+    </div>
+  );
 }
 function LessonCard({ title, sub, badge, actions, thumbId, favorite, previewId, previewable }: { title: string; sub: string; badge?: React.ReactNode; actions: React.ReactNode; thumbId?: string; favorite?: React.ReactNode; previewId?: string; previewable?: boolean }) {
   return (
@@ -431,7 +459,6 @@ function LessonCard({ title, sub, badge, actions, thumbId, favorite, previewId, 
 
 type SharedProps = {
   docs: Doc[];
-  onView: (id: string, wm?: string) => void;
   viewQuery: string;
   onShare: (d: Doc) => void;
   onShareScope: (d: Doc) => void;
@@ -444,7 +471,38 @@ type SharedProps = {
   onRetry: () => void;
 };
 
-function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true, admin = false }: Omit<SharedProps, "onView"> & { heading: string; canUpload?: boolean; admin?: boolean }) {
+/** Three placeholder cards: the shape of what is coming, in its place. */
+function TileSkeletons() {
+  return (
+    <>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="tile skeleton" aria-hidden>
+          <div className="tile-thumb"><div className="tile-preview" /></div>
+          <div className="tile-info"><p className="tile-title">Loading...</p><p className="tile-sub">&nbsp;</p></div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * The one failure a document grid has, and the way out of it.
+ *
+ * Shared rather than written per view because the roles had drifted: a trainer
+ * got this message and a Retry button, while a student got "No resources match"
+ * — the screen a too-narrow search gives you — for the identical failed fetch,
+ * with nothing to click. Same failure, same treatment, by construction.
+ */
+function DocsError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="empty-state">
+      Could not load documents. <button className="btn" onClick={onRetry}>Retry</button>
+    </div>
+  );
+}
+
+function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true, admin = false }: SharedProps & { heading: string; canUpload?: boolean; admin?: boolean }) {
+  const viewer = useViewer();
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<DocSort>("newest");
   const { countOf } = useFavorites();
@@ -515,16 +573,9 @@ function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, 
       )}
       <div className="tile-grid">
         {loading ? (
-          [0, 1, 2].map((i) => (
-            <div key={i} className="tile skeleton" aria-hidden>
-              <div className="tile-thumb"><div className="tile-preview" /></div>
-              <div className="tile-info"><p className="tile-title">Loading...</p><p className="tile-sub">&nbsp;</p></div>
-            </div>
-          ))
+          <TileSkeletons />
         ) : loadError ? (
-          <div className="empty-state">
-            Could not load documents. <button className="btn" onClick={onRetry}>Retry</button>
-          </div>
+          <DocsError onRetry={onRetry} />
         ) : docs.length === 0 ? (
           <div className="empty-state">No documents yet. {canUpload && "Click + Upload PDF to add one."}</div>
         ) : (
@@ -537,7 +588,7 @@ function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, 
               favorite={<FavoriteButton id={d.id} label={d.name} />}
               actions={<>
                 <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>View</Link>
-                {!d.bundled && canManageSharing(d, DEMO_VIEWER) && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
+                {!d.bundled && canManageSharing(d, viewer) && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
                 <button className="btn" onClick={() => onShare(d)}>Get link</button>
                 <button className="btn" onClick={() => onCopy(d)}>Make a copy</button>
                 {admin && !d.bundled && (
@@ -548,7 +599,7 @@ function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, 
                 {admin && d.official && officialFolders.length > 0 && (
                   <MoveToFolder docId={d.id} current={d.folderId} folders={officialFolders} onMoved={onRetry} />
                 )}
-                {!d.bundled && d.owner === DEMO_VIEWER.owner && <button className="btn danger" onClick={() => onDelete(d)}>Delete</button>}
+                {!d.bundled && d.owner === viewer.owner && <button className="btn danger" onClick={() => onDelete(d)}>Delete</button>}
               </>} />
           ))
           )
@@ -572,7 +623,15 @@ function ViewerModal({ src, onClose }: { src: string; onClose: () => void }) {
 
 /* ---------------------------------------------------------------- role views */
 
-function StudentView({ section, docs, viewQuery, notify, uploading, onUploadClick, onShareScope, onCopy, onChanged }: { section: string; docs: Doc[]; viewQuery: string; notify: (msg: string) => void; uploading: boolean; onUploadClick: () => void; onShareScope: (d: Doc) => void; onCopy: (d: Doc) => void; onChanged: () => void }) {
+// loading/loadError/onRetry are not optional extras here. Students are the
+// largest role, and without them a failed /api/docs rendered as "0 available"
+// on Home and "No resources match." on Resources — a broken fetch reported as
+// a fact about the library, with no way to try again.
+function StudentView({ section, docs, viewQuery, notify, uploading, loading, loadError, onRetry, onUploadClick, onShareScope, onCopy, onChanged }: { section: string; docs: Doc[]; viewQuery: string; notify: (msg: string) => void; uploading: boolean; loading: boolean; loadError: boolean; onRetry: () => void; onUploadClick: () => void; onShareScope: (d: Doc) => void; onCopy: (d: Doc) => void; onChanged: () => void }) {
+  const viewer = useViewer();
+  // Owner and chapter ids are cuids. Resource cards were printing them raw, so
+  // a shared file read "By cmx8k2..." — one roster fetch names them all.
+  const { name: memberNameOf, chapter: chapterNameOf } = useNames();
   // Real assignments for whoever is actually signed in. Asking by id (rather
   // than trusting the previewed role) means a trainer previewing "student" sees
   // their OWN queue, not their whole chapter's.
@@ -609,27 +668,17 @@ function StudentView({ section, docs, viewQuery, notify, uploading, onUploadClic
   if (section === "home") {
     return (
       <>
-        <div className="chapter-card">
-          <div className="chapter-head">
-            <div>
-              <p className="chapter-name">{CHAPTER.name}</p>
-              <p className="chapter-region">{CHAPTER.region}</p>
-            </div>
-            <span className="chapter-members">{CHAPTER.members} members</span>
-          </div>
-          <div className="chapter-facts">
-            <div><span className="chapter-label">Advisor</span><span>{CHAPTER.advisor}</span></div>
-            <div><span className="chapter-label">Next event</span><span>{CHAPTER.nextEvent.name} · {CHAPTER.nextEvent.date}</span></div>
-          </div>
-          <p className="chapter-note">{CHAPTER.announcement}</p>
-        </div>
+        <ChapterSummary />
 
         <div className="stat-grid">
           <div className="stat-card"><p className="stat-value">{total - done}</p><p className="stat-label">To do</p></div>
           <div className="stat-card"><p className="stat-value">{done}</p><p className="stat-label">Completed</p></div>
           <div className="stat-card"><p className="stat-value">{pct}%</p><p className="stat-label">Progress</p></div>
-          <div className="stat-card"><p className="stat-value">{docs.length}</p><p className="stat-label">Content available</p></div>
+          {/* "nothing is available" and "we couldn't ask" are different facts,
+              and only one of them is this member's problem. */}
+          <div className="stat-card"><p className="stat-value">{loading || loadError ? "—" : docs.length}</p><p className="stat-label">Content available</p></div>
         </div>
+        {loadError && <DocsError onRetry={onRetry} />}
         {next && (
           <div className="lesson-card" style={{ borderColor: "var(--teal)" }}>
             <div className="lesson-body">
@@ -656,7 +705,7 @@ function StudentView({ section, docs, viewQuery, notify, uploading, onUploadClic
             {loadingAssignments ? "loading..." : `${done} of ${total} complete`}
           </span>
         </div>
-        {total > 0 && <div className="progress-banner"><ProgressBar value={pct} /><span>{pct}%</span></div>}
+        {total > 0 && <div className="progress-banner"><ProgressBar value={pct} done={done} total={total} /><span>{pct}%</span></div>}
         <div className="tile-grid">
           {assignmentsError ? (
             <div className="empty-state">{assignmentsError}</div>
@@ -699,17 +748,17 @@ function StudentView({ section, docs, viewQuery, notify, uploading, onUploadClic
     ];
     // Recover the original Doc for the doc-specific share/copy handlers.
     const docFromItem = (d: ResItem): Doc => docs.find((x) => x.id === d.id)!;
-    const accessible = filterScoped(items, DEMO_VIEWER, "accessible");
+    const accessible = filterScoped(items, viewer, "accessible");
     const counts: Record<ResourceMode, number> = {
       accessible: accessible.length,
-      mine: filterScoped(items, DEMO_VIEWER, "mine").length,
+      mine: filterScoped(items, viewer, "mine").length,
       saved: accessible.filter((d) => favorites.has(d.id)).length,
       public: 0,
       chapter: 0,
     };
     const scoped = mode === "saved"
       ? accessible.filter((d) => favorites.has(d.id))
-      : filterScoped(items, DEMO_VIEWER, mode);
+      : filterScoped(items, viewer, mode);
     // Event options come from the CURRENT scope (not all accessible docs), so
     // the dropdown never offers a category that isn't in the active tab.
     const eventList = [...new Set(scoped.map((d) => d.event).filter((e): e is string => !!e))]
@@ -755,7 +804,12 @@ function StudentView({ section, docs, viewQuery, notify, uploading, onUploadClic
             ? "Files you uploaded. They start private; use Share to let your chapter or everyone see them."
             : mode === "saved"
               ? "Resources you saved. Tap the heart on any resource to add it here."
-              : `Everything shared with you, viewing as a member of ${DEMO_VIEWER.chapter}.`}
+              // A chapter we can't name is left out of the sentence entirely.
+              // "a member of cmx8k2..." told a student nothing, and "a member
+              // of ." is what naming it unconditionally would produce.
+              : viewer.chapter
+                ? `Everything shared with you, viewing as a member of ${chapterNameOf(viewer.chapter)}.`
+                : "Everything shared with you."}
         </p>
         <div className="folder-bar" role="tablist" aria-label="Folders">
           <button
@@ -822,20 +876,33 @@ function StudentView({ section, docs, viewQuery, notify, uploading, onUploadClic
         <DocToolbar q={q} setQ={setQ} sort={sort} setSort={setSort} shown={visible.length} total={scoped.length}
           events={eventList} event={event} setEvent={setEvent} />
         <div className="tile-grid">
+          {loading && <TileSkeletons />}
           {visible.map((d) => d.kind === "deck" ? (
             <LessonCard key={d.id} title={d.name} previewable={false}
               favorite={<FavoriteButton id={d.id} label={d.name} />}
               badge={<span className={`badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>{VIS_LABEL[d.visibility]}</span>}
-              sub={`Flashcards · ${d.cardCount} card${d.cardCount === 1 ? "" : "s"}${d.owner === DEMO_VIEWER.owner ? " · Yours" : d.owner === "system" ? " · HOSA sample" : ` · By ${d.owner}`}${d.people.length > 0 ? ` · shared with ${d.people.length}` : ""}`}
+              sub={`Flashcards · ${d.cardCount} card${d.cardCount === 1 ? "" : "s"}${d.owner === viewer.owner ? " · Yours" : d.owner === "system" ? " · HOSA sample" : ` · By ${memberNameOf(d.owner)}`}${d.people.length > 0 ? ` · shared with ${d.people.length}` : ""}`}
               actions={
                 <>
                   <Link className="btn primary" href={`/decks/${d.id}${viewQuery}`}>Study</Link>
-                  {d.id !== "sample-deck" && canEdit(d, DEMO_VIEWER) && <Link className="btn" href={`/decks/${d.id}/edit${viewQuery}`}>Edit</Link>}
+                  {d.id !== "sample-deck" && canEdit(d, viewer) && <Link className="btn" href={`/decks/${d.id}/edit${viewQuery}`}>Edit</Link>}
                   <button className="btn" disabled={deckBusy === d.id} onClick={() => void copyDeck(d.id)}>Make a copy</button>
-                  {d.id !== "sample-deck" && canManageSharing(d, DEMO_VIEWER) && (
+                  {d.id !== "sample-deck" && canManageSharing(d, viewer) && (
                     <button className="btn" onClick={() => setDeckShare({ kind: "deck", id: d.id, name: d.name, visibility: d.visibility, chapter: d.chapter, people: d.people, owner: d.owner })}>Share</button>
                   )}
-                  {d.owner === DEMO_VIEWER.owner && <button className="btn danger" disabled={deckBusy === d.id} onClick={() => void delDeck(d.id)}>Delete</button>}
+                  {/* del() returns a message on refusal and null on success.
+                      Discarding it left a refused delete looking like a click
+                      that missed — the tile correctly stays, with nothing to
+                      say why. This surface already has toasts; use them. */}
+                  {d.owner === viewer.owner && (
+                    <button
+                      className="btn danger"
+                      disabled={deckBusy === d.id}
+                      onClick={() => void delDeck(d.id).then((msg) => { if (msg) notify(msg); })}
+                    >
+                      Delete
+                    </button>
+                  )}
                 </>
               } />
           ) : (
@@ -845,19 +912,26 @@ function StudentView({ section, docs, viewQuery, notify, uploading, onUploadClic
               badge={d.official
                 ? <span className="badge badge-official">Official</span>
                 : <span className={`badge badge-${d.visibility === "public" ? "ok" : d.visibility === "chapter" ? "warn" : "muted"}`}>{VIS_LABEL[d.visibility]}</span>}
-              sub={`${d.official || d.bundled ? "HOSA official" : d.owner === DEMO_VIEWER.owner ? "Your upload" : "Shared by a member"}${d.event ? ` · ${d.event}` : ""}${d.visibility === "chapter" && d.chapter ? ` · ${d.chapter}` : ""}${d.people.length > 0 ? ` · shared with ${d.people.length}` : ""}`}
+              sub={`${d.official || d.bundled ? "HOSA official" : d.owner === viewer.owner ? "Your upload" : "Shared by a member"}${d.event ? ` · ${d.event}` : ""}${d.visibility === "chapter" && d.chapter ? ` · ${chapterNameOf(d.chapter)}` : ""}${d.people.length > 0 ? ` · shared with ${d.people.length}` : ""}`}
               actions={
                 <>
                   <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>Open</Link>
-                  {!d.bundled && canManageSharing(d, DEMO_VIEWER) && <button className="btn" onClick={() => onShareScope(docFromItem(d))}>Share</button>}
+                  {!d.bundled && canManageSharing(d, viewer) && <button className="btn" onClick={() => onShareScope(docFromItem(d))}>Share</button>}
                   <button className="btn" onClick={() => onCopy(docFromItem(d))}>Make a copy</button>
-                  {!d.official && d.owner === DEMO_VIEWER.owner && myFolders.length > 0 && (
+                  {!d.official && d.owner === viewer.owner && myFolders.length > 0 && (
                     <MoveToFolder docId={d.id} current={d.folderId} folders={myFolders} onMoved={onChanged} />
                   )}
                 </>
               } />
           ))}
-          {savedEmpty
+          {/* Decks come from a different endpoint, so any that loaded stay on
+              screen next to this — the failure is documents, and saying so is
+              more use than blanking the page. */}
+          {loadError
+            ? <DocsError onRetry={onRetry} />
+            : loading
+            ? null
+            : savedEmpty
             ? <div className="empty-state">No saved resources yet. Tap the heart on any resource to save it here.</div>
             : mineEmpty
             ? <div className="empty-state">Nothing of yours yet. Upload a document or create flashcards to get started.</div>
@@ -876,60 +950,76 @@ function StudentView({ section, docs, viewQuery, notify, uploading, onUploadClic
 
   if (section === "flashcards") return <FlashcardsView />;
   if (section === "quizzes") return <QuizzesView />;
+  if (section === "results") return <MyAttempts />;
   if (section === "skills") return <SkillsView />;
 
   return <ComingSoon title={section} />;
 }
 
 function TrainerView({ section, ...shared }: SharedProps & { section: string }) {
-  if (section === "lessons") return <DocManager {...shared} docs={filterScoped(shared.docs, DEMO_VIEWER, "accessible")} heading="My lessons" />;
+  const viewer = useViewer();
+  if (section === "lessons") return <DocManager {...shared} docs={filterScoped(shared.docs, viewer, "accessible")} heading="My lessons" />;
   if (section === "flashcards") return <FlashcardsView />;
   if (section === "quizzes") return <QuizzesView />;
+  if (section === "results") return <MyAttempts />;
   if (section === "skills") return <SkillsView />;
 
   return <ComingSoon title={section} />;
 }
 
 function AdvisorView({ section, ...shared }: SharedProps & { section: string }) {
-  if (section === "lessons") return <DocManager {...shared} docs={filterScoped(shared.docs, DEMO_VIEWER, "accessible")} heading="Chapter lessons" />;
+  const viewer = useViewer();
+  if (section === "lessons") return <DocManager {...shared} docs={filterScoped(shared.docs, viewer, "accessible")} heading="Chapter lessons" />;
   return <ComingSoon title={section} />;
 }
 
-// People and assigning live in "My chapter" now (one surface for every role);
-// "Users & roles" below stays a demo fixture, since nothing serves role changes.
-function AdminView({ section, onRole, ...shared }: SharedProps & { section: string; onRole: (name: string, role: string) => void }) {
-  const [users, setUsers] = useState<AdminUser[]>(ADMIN_USERS);
-  const [settings, setSettings] = useState(ADMIN_SETTINGS);
-  if (section === "overview") {
-    return (
-      <div className="stat-grid">
-        {ADMIN_STATS.map((s) => <div key={s.label} className="stat-card"><p className="stat-value">{s.value}</p><p className="stat-label">{s.label}</p></div>)}
+/**
+ * What a non-admin gets where the admin console would be.
+ *
+ * Reaching this is ordinary, not an intrusion: the switcher invites anyone to
+ * look at another role's menu. So it names what lives here and why it is empty,
+ * instead of drawing the console's chrome around whatever a student's own API
+ * calls happen to return — which is what it used to do. /api/roster answers a
+ * student with their own chapter and a 200, and those rows came out labelled
+ * "Members", "Chapters" and "Active this week".
+ */
+function AdminOnly({ access, signedRole }: { access: "checking" | "denied"; signedRole?: string }) {
+  // Denying before /api/auth/me answers would accuse every real admin of not
+  // being one for as long as the request takes.
+  if (access === "checking") return <div className="empty-state">Checking your access...</div>;
+  const label = ROLES.find((r) => r.id === signedRole)?.label;
+  return (
+    <section className="role-section">
+      <div className="section-head">
+        <h2>Admin only</h2>
+        <span className="section-count">preview</span>
       </div>
-    );
-  }
-  if (section === "users") {
-    return (
-      <section className="role-section">
-        <div className="section-head"><h2>Users &amp; roles</h2><span className="section-count">{users.length} users · change any role</span></div>
-        <div className="table-card">
-          {users.map((u) => (
-            <div key={u.id} className="member-row">
-              <div className="member-id"><span className="avatar">{initials(u.name)}</span>
-                <div><p className="member-name">{u.name}</p><p className="member-email">{u.email}</p></div></div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <select className="role-select" value={u.role}
-                  onChange={(e) => { const r = e.target.value as Role; setUsers((p) => p.map((x) => x.id === u.id ? { ...x, role: r } : x)); onRole(u.name, ROLES.find((x) => x.id === r)!.label); }}>
-                  {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-                </select>
-                <button className="btn" onClick={() => setUsers((p) => p.filter((x) => x.id !== u.id))}>Remove</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    );
-  }
+      <div className="empty-state">
+        This is where an admin sees platform-wide numbers, the member list, and the moderation
+        queue.{" "}
+        {/* A role we could not read is not a role we can name. useMe resolves
+            with a default when both identity lookups fail, so asserting
+            "you are a student" there would be the same kind of invention this
+            whole screen exists to stop. */}
+        {label
+          ? `Your HOSA account is a ${label.toLowerCase()}, so there is nothing to show here:`
+          : "Vitals couldn't confirm your account, so it is not showing you any of it:"}{" "}
+        the role switcher previews a menu, and the server checks the role on your session.
+      </div>
+    </section>
+  );
+}
+
+// People and assigning live in "My chapter" now (one surface for every role).
+// Overview and "Users & roles" read the real roster (components/admin-console);
+// they were fixtures — invented counts and four invented people behind a role
+// dropdown Vitals has no power to honour, since roles come from HOSA's signed
+// token and lib/users writes them from nowhere else.
+function AdminView({ section, ...shared }: SharedProps & { section: string }) {
+  if (section === "overview") return <AdminOverview documents={shared.docs.length} />;
+  if (section === "users") return <AdminUsers />;
   if (section === "content") return <DocManager {...shared} heading="All content" admin />;
+  if (section === "moderation") return <ModerationView />;
   if (section === "access") {
     return (
       <section className="role-section">
@@ -946,32 +1036,13 @@ function AdminView({ section, onRole, ...shared }: SharedProps & { section: stri
     );
   }
   if (section === "activity") return <ActivityLog />;
-  if (section === "settings") {
-    return (
-      <section className="role-section">
-        <div className="section-head"><h2>Settings</h2><span className="section-count">platform configuration</span></div>
-        <div className="table-card">
-          {settings.map((s, i) => (
-            <label key={s.label} className="member-row" style={{ cursor: "pointer" }}>
-              <div className="member-id"><div><p className="member-name">{s.label}</p><p className="member-email">{s.desc}</p></div></div>
-              <input
-                type="checkbox"
-                checked={s.on}
-                aria-label={s.label}
-                onChange={() => setSettings((p) => p.map((x, j) => (j === i ? { ...x, on: !x.on } : x)))}
-              />
-            </label>
-          ))}
-        </div>
-      </section>
-    );
-  }
+  if (section === "settings") return <AdminSettings />;
   return <ComingSoon title={section} />;
 }
 
 /* ---------------------------------------------------------------- modals */
 
-function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () => void; onView: (id: string, wm?: string) => void; notify: (m: string) => void }) {
+function ShareModal({ doc, onClose, onPreview, notify }: { doc: Doc; onClose: () => void; onPreview: (embedUrl: string) => void; notify: (m: string) => void }) {
   const [watermark, setWatermark] = useState("");
   const [ttl, setTtl] = useState(15);
   const [download, setDownload] = useState(false);
@@ -995,7 +1066,10 @@ function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () =>
         <label className="dash-field"><span>Watermark (shown on every page)</span>
           <input value={watermark} placeholder="e.g. Daniel Liu • confidential" onChange={(e) => setWatermark(e.target.value)} /></label>
         <label className="dash-field"><span>Link expires in (minutes)</span>
-          <input type="number" min={1} max={60} value={ttl} onChange={(e) => setTtl(Number(e.target.value))} /></label>
+          {/* `|| 1` because clearing the box gives Number("") === NaN, which
+              JSON.stringify writes as null and the API reads as "no expiry
+              asked for". Same guard as the upload form. */}
+          <input type="number" min={1} max={60} value={ttl} onChange={(e) => setTtl(Number(e.target.value) || 1)} /></label>
         <div className="dash-checks">
           <label><input type="checkbox" checked={download} onChange={(e) => setDownload(e.target.checked)} /> Allow download</label>
           <label><input type="checkbox" checked={print} onChange={(e) => setPrint(e.target.checked)} /> Allow print</label>
@@ -1003,7 +1077,18 @@ function ShareModal({ doc, onClose, onView, notify }: { doc: Doc; onClose: () =>
         </div>
         <div className="dash-modal-actions">
           <button className="cta secondary" onClick={onClose}>Cancel</button>
-          <button className="cta secondary" disabled={busy} onClick={async () => { setBusy(true); const u = await mint(); setBusy(false); if (u) { onClose(); onView(doc.id, watermark); } }}>Preview</button>
+          {/* Preview the token that was just minted. It used to mint one with
+              these settings, throw the URL away, and open a second token built
+              from defaults — so ticking "Open as slideshow" and pressing
+              Preview showed the scroll viewer, and the preview disagreed with
+              the link it was previewing. */}
+          <button className="cta secondary" disabled={busy} onClick={async () => {
+            setBusy(true);
+            const u = await mint();
+            setBusy(false);
+            if (u) { onClose(); onPreview(u); }
+            else notify("Couldn't open the document.");
+          }}>Preview</button>
           <button className="cta" disabled={busy} onClick={async () => {
             setBusy(true);
             const u = await mint();

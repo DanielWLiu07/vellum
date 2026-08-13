@@ -35,6 +35,11 @@ export const NAV: Record<Role, NavItem[]> = {
     { id: "modules", label: "Modules" },
     { id: "resources", label: "Resources" },
     { id: "quizzes", label: "Quizzes" },
+    // Your own exam results. Sits next to Quizzes because that is where you
+    // earned them — and it exists because /api/quizzes/[id]/attempts is
+    // rightly owner-only (it carries other members' scores), which left the
+    // person who sat the exam as the one party who couldn't see their result.
+    { id: "results", label: "My results" },
     { id: "skills", label: "General skills" },
     ...COMMON_LINKS,
   ],
@@ -44,6 +49,11 @@ export const NAV: Record<Role, NavItem[]> = {
     { id: "modules", label: "Modules" },
     { id: "flashcards", label: "Flashcards" },
     { id: "quizzes", label: "Quizzes" },
+    // Your own exam results. Sits next to Quizzes because that is where you
+    // earned them — and it exists because /api/quizzes/[id]/attempts is
+    // rightly owner-only (it carries other members' scores), which left the
+    // person who sat the exam as the one party who couldn't see their result.
+    { id: "results", label: "My results" },
     { id: "skills", label: "General skills" },
     ...COMMON_LINKS,
   ],
@@ -56,6 +66,7 @@ export const NAV: Record<Role, NavItem[]> = {
     { id: "modules", label: "Modules" },
     { id: "resources", label: "Resources" },
     { id: "quizzes", label: "Quizzes" },
+    { id: "results", label: "My results" },
     { id: "lessons", label: "Chapter lessons" },
     { id: "skills", label: "General skills" },
     ...COMMON_LINKS,
@@ -66,6 +77,9 @@ export const NAV: Record<Role, NavItem[]> = {
     { id: "users", label: "Users & roles" },
     { id: "modules", label: "Modules" },
     { id: "content", label: "All content" },
+    // The queue existed with no way to drain it — held content and no review
+    // surface. See components/moderation-view.
+    { id: "moderation", label: "Submissions" },
     { id: "access", label: "Roles & access" },
     { id: "activity", label: "Activity log" },
     { id: "settings", label: "Settings" },

@@ -20,7 +20,21 @@ function Progress({ done, assigned }: { done?: number; assigned?: number }) {
   const pct = assigned === 0 ? 0 : Math.round((done / assigned) * 100);
   return (
     <div className="member-progress">
-      <div className="bar" aria-label={`${pct}%`}><div className="bar-fill" style={{ width: `${pct}%` }} /></div>
+      {/* aria-label on a bare div is ignored: with no role there is nothing for
+          the label to attach to, so the bar was absent from the accessibility
+          tree entirely and the percentage went unread. valuetext rather than
+          the bare number because "3 of 8 complete" is what a reviewer is
+          actually after, and it matches the fraction rendered beside it. */}
+      <div
+        className="bar"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuetext={`${done} of ${assigned} complete`}
+      >
+        <div className="bar-fill" style={{ width: `${pct}%` }} />
+      </div>
       <span className="member-frac">{done}/{assigned}</span>
     </div>
   );
