@@ -23,6 +23,8 @@ import { __resetRateLimit } from "@/lib/rate-limit";
 
 const ALLOWED = { allowed: true, flagged: false, categories: [], checked: true };
 const FLAGGED = { allowed: false, flagged: true, categories: ["hate"], checked: true };
+// What moderateText returns when it never ran: allowed, but examined by nobody.
+const SKIPPED = { allowed: true, flagged: false, categories: [], checked: false };
 
 const patchReq = (body: unknown) =>
   new NextRequest("https://v.test/api/profile", {
@@ -79,6 +81,25 @@ describe("PATCH /api/profile", () => {
     expect(j.categories).toEqual(["hate"]);
     expect(getProfile().displayName).toBe("You"); // unchanged
     expect(recordAudit).toHaveBeenCalledWith("profile.blocked", "hateful name", "hate");
+  });
+
+  // A bio is shown beside this member's name wherever they appear, and the old
+  // check read a never-ran result as a pass — so during an outage a bio went
+  // live having been examined by nobody. Refusing leaves the previous values
+  // standing, which costs the member nothing they had.
+  it("refuses an edit nobody could check, leaving the profile as it was", async () => {
+    moderateText.mockResolvedValue(SKIPPED);
+    const res = await PATCH(patchReq({ displayName: "Unchecked", bio: "unchecked" }));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe("moderation_unavailable");
+    expect(getProfile().displayName).toBe("You");
+    // Recorded as a block so an admin can see why edits started failing, with
+    // the cause in the detail rather than a category nobody tripped.
+    expect(recordAudit).toHaveBeenCalledWith(
+      "profile.blocked",
+      "Unchecked",
+      "not checked - moderation unavailable",
+    );
   });
 
   it("passes both the name and the bio to the moderator", async () => {

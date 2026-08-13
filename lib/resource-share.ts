@@ -11,6 +11,7 @@
 
 import { normalizePeople, type PersonShare, type Visibility } from "./visibility";
 import { isQuarantined } from "./moderation-queue";
+import { getViewer } from "./profile";
 import { isPublicSharingBanned } from "./share-ban";
 
 export interface ShareState {
@@ -37,20 +38,36 @@ export function getShare(docId: string): ShareState | undefined {
  *
  *   - the resource is awaiting moderation review, so it must not reach anyone
  *     while the review it is waiting on is still open;
- *   - the owner is banned from public sharing.
+ *   - the actor is banned from public sharing.
  *
  * `chapter` is clamped too, not just `public` — a chapter is every member of
  * that chapter, which is exactly the audience a ban is meant to remove. Named
  * per-person grants are deliberately untouched: they survive both cases, so a
  * banned or held resource can still be handed to a specific reviewer.
  *
- * This lives here rather than at the eight setShare call sites because a check
- * repeated eight times is a check the ninth caller forgets.
+ * This lives here rather than at the setShare call sites because a check
+ * repeated at nine of them is a check the tenth forgets.
+ *
+ * WHY THE ACTOR IS NOT A PLAIN ARGUMENT. It used to be an optional one, and
+ * "centralized" then meant only that the `if` was written once: of the nine
+ * call sites exactly one passed an actor, so `actor && …` was false everywhere
+ * a member could reach and a ban was a row in the admin list that stopped
+ * nothing. Making the argument REQUIRED would only move the failure — a
+ * required parameter is satisfied by whatever is in scope, and a future call
+ * site under deadline will pass the resource's owner, or "", and typecheck.
+ * So the actor is resolved here from the request session instead. There is no
+ * argument to forget, no call site that can opt out, and a new route gets the
+ * check by doing nothing at all.
+ *
+ * The parameter survives only as an OVERRIDE, for the one caller whose subject
+ * genuinely isn't the person making the request: moderation approval restores
+ * the visibility a resource's OWNER asked for, so it weighs the ban on that
+ * owner rather than on the admin pressing Approve.
  */
 export function clampVisibility(
   docId: string,
   requested: Visibility,
-  actor?: string,
+  actor: string = getViewer().owner,
 ): Visibility {
   if (requested === "private") return requested;
   if (isQuarantined(docId)) return "private";
@@ -63,7 +80,12 @@ export function clampVisibility(
  * fields they're changing; anything else (e.g. the people list when just the
  * scope changes) is preserved. `defaults` seeds visibility/chapter the first
  * time a resource gets share state, so a people-only update doesn't silently
- * reset a deck's scope to something it never had.
+ * reset a deck's scope to something it never had — pass the resource's CURRENT
+ * effective scope, never a literal, or the seed becomes a second copy of a
+ * default that lives somewhere else.
+ *
+ * `actor` is the ban-check override described on clampVisibility; leaving it
+ * out is the normal case and checks the authenticated caller.
  */
 export function setShare(
   docId: string,

@@ -3,7 +3,8 @@ import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
 import { createFolder, listFolders } from "@/lib/folders";
-import { flaggedReason, moderateText } from "@/lib/moderation";
+import { moderateText } from "@/lib/moderation";
+import { holdlessDisposition } from "@/lib/moderation-gate";
 import { getViewer } from "@/lib/profile";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
@@ -44,10 +45,22 @@ export async function POST(req: NextRequest) {
   if (official && !viewer.admin) {
     return NextResponse.json({ error: "admin_only" }, { status: 403 });
   }
-  const mod = await moderateText(name);
-  if (!mod.allowed) {
-    recordAudit("folder.blocked", name, flaggedReason(mod));
-    return NextResponse.json({ error: "content_flagged", categories: mod.categories }, { status: 422 });
+  // A folder name is a label on a container, not a document: there is nothing
+  // to store privately pending review, so a hold has no meaning here (see
+  // holdlessDisposition). Refusing costs a rename.
+  const gate = holdlessDisposition(await moderateText(name));
+  if (gate.action === "refuse" && gate.reason === "unchecked") {
+    // Previously this passed: a skipped check is allowed:true, so an outage
+    // meant folder names were stored unexamined and recorded as clean.
+    recordAudit("folder.blocked", name, "not checked - moderation unavailable");
+    return NextResponse.json(
+      { error: "moderation_unavailable" },
+      { status: 503, headers: { "Retry-After": "60", "Cache-Control": "no-store" } },
+    );
+  }
+  if (gate.action === "refuse") {
+    recordAudit("folder.blocked", name, gate.categories.join(", "));
+    return NextResponse.json({ error: "content_flagged", categories: gate.categories }, { status: 422 });
   }
   const folder = createFolder(name, viewer.owner, official);
   recordAudit("folder.create", folder.name);

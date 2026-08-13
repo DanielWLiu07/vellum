@@ -34,7 +34,12 @@ export type Disposition =
   | { action: "refuse"; categories: string[] }
   | { action: "quarantine"; reason: "flagged" | "unchecked"; categories: string[]; detail?: string };
 
-export function isHardRefusal(categories: string[]): boolean {
+// Module-private: only disposition() below asks this, and nothing outside
+// should. A caller that reaches for "is this a hard refusal?" on its own is
+// re-deriving a disposition by hand, which is the duplication this module was
+// split out to prevent — the exported entry points are disposition(),
+// holdlessDisposition() and strictest(). Tests cover it through those.
+function isHardRefusal(categories: string[]): boolean {
   return categories.some((c) => HARD_REFUSE_CATEGORIES.includes(c));
 }
 
@@ -65,6 +70,49 @@ export function disposition(mod: ModerationResult, detail?: string): Disposition
   }
 
   return { action: "allow" };
+}
+
+/**
+ * What to do about content that has nowhere to be held: a comment, a folder
+ * name, a profile field.
+ *
+ * Quarantine is "store it, force it private, queue it for a human", and two of
+ * those three clauses need somewhere to put the content. A comment exists only
+ * in order to be read by other people — there is no private state it could sit
+ * in while it waits — and a folder name and a display name are the same. The
+ * review route says this from the other end: takedownEnforceable() returns
+ * false for exactly these kinds, because writing "private" against something
+ * with no scope is "a no-op wearing the costume of a takedown". Queueing them
+ * would hand a reviewer buttons that cannot carry out what they say, which is
+ * the failure that queue exists to prevent.
+ *
+ * So quarantine collapses into a refusal here. The REASON survives, and that is
+ * the point:
+ *
+ *   flagged    a model objected. Refusing costs the member a retype, which is a
+ *              real cost but a far smaller one than for an upload — the text is
+ *              still in their box and nothing they had is destroyed. That
+ *              asymmetry is why an upload is held and a comment is not.
+ *   unchecked  nobody looked: no key, over a cap, or the endpoint is down. This
+ *              is the case `if (!mod.allowed)` got wrong, because a SKIPPED
+ *              result is allowed:true — so during an outage unexamined text was
+ *              stored as though it had been examined and cleared.
+ *
+ * Refusing on `unchecked` does take these features down for as long as an
+ * outage lasts, and that is the intended trade. For content that goes straight
+ * in front of other members with no hold available, being unable to post is the
+ * better failure than publishing unreviewed material as reviewed. Callers
+ * should say "try again shortly" and must not phrase it as an accusation.
+ */
+export type HoldlessDisposition =
+  | { action: "allow" }
+  | { action: "refuse"; reason: "flagged" | "unchecked"; categories: string[] };
+
+export function holdlessDisposition(mod: ModerationResult): HoldlessDisposition {
+  const disp = disposition(mod);
+  if (disp.action === "allow") return { action: "allow" };
+  if (disp.action === "refuse") return { action: "refuse", reason: "flagged", categories: disp.categories };
+  return { action: "refuse", reason: disp.reason, categories: disp.categories };
 }
 
 /**

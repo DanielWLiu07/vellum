@@ -32,6 +32,22 @@ export function isPublicSharingBanned(owner: string): boolean {
   return store.has(owner);
 }
 
+/**
+ * The ban on one owner, reason included. KEPT, not dead — but be aware that
+ * today the only callers are lib/share-ban.test.ts.
+ *
+ * Kept for two reasons rather than "we might want it". First, it is the store's
+ * point read: answering "why is this one owner banned?" through listShareBans()
+ * means building and sorting every ban to look at one, and the tests that
+ * observe a re-ban refreshing its reason would get worse, not better.
+ *
+ * Second, there is a specific unfinished consumer. `reason` is documented above
+ * as the justification shown to reviewers, and nothing shows it: a refused
+ * share returns clampedReason "sharing_restricted" (see the doc/deck/quiz PATCH
+ * routes) and the dialog renders "Public sharing isn't available on your
+ * account" — the admin's recorded reason, sitting right here, unread. Whoever
+ * closes that gap needs this function.
+ */
 export function getShareBan(owner: string): ShareBan | undefined {
   return store.get(owner);
 }

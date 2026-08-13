@@ -62,13 +62,28 @@ describe("create empty drafts with settings", () => {
     }
   });
 
-  it("defaults to the shared pool (public) when no visibility is given", async () => {
+  // This used to assert `public`, matching lib/decks' fallback for a deck with
+  // no share row. That fallback made omitting one field a way past the publish
+  // gate: a POST with no `visibility` reached every HOSA member in the country
+  // without a reviewer ever seeing it, while the same member's PDF waited in a
+  // queue. A deck nobody has scoped yet is nobody else's business.
+  it("scopes a deck with no stated visibility to private, not the shared pool", async () => {
     const res = await decksPost(jsonReq("https://v.test/api/decks", { title: "NoVis", cards: [] }));
     const { id } = await res.json();
     try {
-      expect(getDeck(id)!.visibility).toBe("public");
+      expect(getDeck(id)!.visibility).toBe("private");
     } finally {
       deleteDeck(id);
+    }
+  });
+
+  it("scopes a quiz with no stated visibility to private too", async () => {
+    const res = await quizzesPost(jsonReq("https://v.test/api/quizzes", { title: "NoVis", questions: [] }));
+    const { id } = await res.json();
+    try {
+      expect(getQuiz(id)!.visibility).toBe("private");
+    } finally {
+      deleteQuiz(id);
     }
   });
 });

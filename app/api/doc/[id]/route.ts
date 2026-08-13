@@ -5,7 +5,9 @@ import { recordAudit } from "@/lib/audit";
 import { deleteShare, setShare } from "@/lib/resource-share";
 import { deleteFavoritesFor } from "@/lib/favorites";
 import { getFolder } from "@/lib/folders";
+import { deleteQueueFor, describeOpenReview, enqueue, isQuarantined } from "@/lib/moderation-queue";
 import { deletePreview } from "@/lib/preview-cache";
+import { decidePublish } from "@/lib/publish";
 import { evictDeckCache } from "@/lib/slides-render";
 import { deleteResourceMeta, setResourceMeta } from "@/lib/resource-meta";
 import { deleteDoc, getDoc, getDocBytes } from "@/lib/store";
@@ -74,6 +76,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   deleteThumbnail(id);
   evictDeckCache(id); // drop any module-render cache so deleted bytes can't be re-served
   recordAudit("document.delete", doc.name);
+  // Review entries are cleaned up like every other sidecar, but they are the
+  // one kind worth a second line in the log: deleting your own work while a
+  // reviewer is looking at it is allowed (see deleteQueueFor for why refusing
+  // would be worse), and the record is the whole of what stops it being free.
+  const openReview = deleteQueueFor(id);
+  if (openReview.length > 0) {
+    recordAudit("moderation.deleted_under_review", doc.name, describeOpenReview(openReview));
+  }
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -143,6 +153,47 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
   if (wantsMeta) setResourceMeta(id, metaPatch);
+
+  // Going public is a submission, not a setting: it puts the file in front of
+  // every member in the country. Private and chapter stay the member's own
+  // call, and an admin publishes directly since they are the approver. See
+  // lib/publish for why the line sits here.
+  // Captured before decidePublish rewrites it, so a clamp can be compared
+  // against what the caller actually asked for rather than what we settled on.
+  const requestedVisibility = patch.visibility;
+  let submitted = false;
+  if (patch.visibility !== undefined) {
+    const decision = decidePublish({
+      requested: patch.visibility,
+      current: doc.visibility,
+      isAdmin: getViewer().admin,
+    });
+    if (decision.kind === "submit") {
+      // Hold at what they already had, and record what they asked for so an
+      // approval can restore it verbatim.
+      patch.visibility = decision.hold;
+      // `submitted` must track whether a request was actually FILED, not
+      // whether one was attempted. It used to be set here, outside the guard
+      // below, so a document that already had a pending hold answered
+      // submittedForReview: true while enqueuing nothing and auditing nothing.
+      // The member was told a reviewer had their publish request; it existed
+      // nowhere. That path is easy to hit right now — every upload is being
+      // held as "unchecked" while the moderation endpoint is down.
+      if (!isQuarantined(id)) {
+        enqueue({
+          resourceId: id,
+          kind: "document",
+          owner: doc.owner,
+          title: patch.name ?? doc.name,
+          reason: "submitted",
+          requestedVisibility: "public",
+        });
+        recordAudit("document.submitted", patch.name ?? doc.name);
+        submitted = true;
+      }
+    }
+  }
+
   // Seed defaults from the doc's current effective scope so a rename or a
   // people-only update doesn't reset an upload's visibility.
   const next = Object.keys(patch).length > 0
@@ -156,6 +207,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       visibility: next?.visibility ?? doc.visibility,
       chapter: next?.chapter ?? doc.chapter,
       people: next?.people ?? doc.people,
+      // The caller asked for public and got held at something narrower — say
+      // so, or the UI silently shows the old scope and looks like a failed save.
+      ...(submitted ? { submittedForReview: true } : {}),
+      // A scope that was refused outright. clampVisibility does this for a
+      // held resource or a share-banned owner, and reporting {ok:true} without
+      // saying so meant the owner clicked Share, saw success, and the file
+      // never moved — with nothing anywhere to explain why.
+      ...(!submitted &&
+      requestedVisibility !== undefined &&
+      next &&
+      next.visibility !== requestedVisibility
+        ? {
+            clamped: true,
+            clampedTo: next.visibility,
+            clampedReason: isQuarantined(id) ? "held_for_review" : "sharing_restricted",
+          }
+        : {}),
     },
     { headers: { "Cache-Control": "no-store" } },
   );

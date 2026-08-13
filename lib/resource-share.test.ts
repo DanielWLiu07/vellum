@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { __resetModerationQueue, enqueue, resolveEntry } from "./moderation-queue";
+import { OWNER_KEY } from "./profile-types";
 import { deleteShare, getShare, setShare } from "./resource-share";
 import { __resetShareBans, banPublicSharing, liftPublicShareBan } from "./share-ban";
 
@@ -88,6 +89,32 @@ describe("setShare is the gate to an audience", () => {
     expect(setShare("b_2", { visibility: "chapter" }, undefined, "ava").visibility).toBe("private");
   });
 
+  // THE regression test for the ban. Everything above names the actor, which is
+  // what let the ban pass for a working feature while nothing enforced it: the
+  // actor was an optional argument, eight of nine call sites left it out, and
+  // `actor && …` was false on every path a member could take. So the ban was
+  // stored, listed in the admin UI, and applied to nobody.
+  //
+  // No actor is passed here on purpose. If someone reintroduces the parameter
+  // as something a caller has to remember, this fails - which is the point,
+  // because the next new route is the one that forgets.
+  it("clamps the CALLER even when no actor is named - forgetting cannot switch the ban off", () => {
+    banPublicSharing(OWNER_KEY, "admin"); // the viewer these tests run as
+    expect(setShare("b_7", { visibility: "public" }).visibility).toBe("private");
+    expect(setShare("b_8", { visibility: "chapter" }).visibility).toBe("private");
+  });
+
+  // The named actor is an override for one caller with a different subject:
+  // moderation approval restores what the resource's OWNER asked for, so a ban
+  // on the owner has to bite even though an unbanned admin is making the call.
+  it("weighs the named actor, not the caller, when one is given", () => {
+    banPublicSharing("ava", "admin");
+    expect(setShare("b_9", { visibility: "public" }, undefined, "ava").visibility).toBe("private");
+    // And the reverse: a banned CALLER acting on an unbanned owner's behalf.
+    banPublicSharing(OWNER_KEY, "admin");
+    expect(setShare("b_10", { visibility: "public" }, undefined, "ben").visibility).toBe("public");
+  });
+
   it("does not clamp a different, unbanned owner", () => {
     banPublicSharing("ava", "admin");
     expect(setShare("b_3", { visibility: "public" }, undefined, "ben").visibility).toBe("public");
@@ -112,7 +139,7 @@ describe("setShare is the gate to an audience", () => {
     expect(state.people).toEqual([{ person: "Reviewer", role: "viewer" }]);
   });
 
-  it("is unaffected when no actor is supplied and nothing is held (seeding stays public)", () => {
+  it("leaves an unbanned caller alone with nothing held (seeding stays public)", () => {
     expect(setShare("b_6", { visibility: "public" }).visibility).toBe("public");
   });
 });

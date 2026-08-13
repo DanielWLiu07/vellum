@@ -3,6 +3,8 @@ import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
 import { flaggedReason, moderateText } from "@/lib/moderation";
+import { enqueue } from "@/lib/moderation-queue";
+import { resolvePublish } from "@/lib/publish";
 import { type QuizQuestion, coerceChoice, createQuiz, listQuizzes } from "@/lib/quizzes";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { getViewer } from "@/lib/profile";
@@ -60,10 +62,41 @@ export async function POST(req: NextRequest) {
   }
   // A quiz can be created empty - a draft you fill in from its live editor.
   const quiz = createQuiz(title, questions, getViewer().owner, body?.exam);
-  // Optional visibility chosen on the create screen (drafts default to private).
-  if (typeof body?.visibility === "string") {
-    setShare(quiz.id, { visibility: normalizeVisibility(body.visibility), chapter: getViewer().chapter });
+  // Scope every new quiz EXPLICITLY, including when the caller named no
+  // visibility. Without a share row lib/quizzes composes in its own fallback,
+  // `public`, so a create that simply left the field out reached every member
+  // in the country without passing the gate below — the whole rule skipped by
+  // omitting one word. An unscoped quiz is private, the way an upload is; it
+  // reaches an audience by asking.
+  const requested = typeof body?.visibility === "string" ? normalizeVisibility(body.visibility) : "private";
+  // Public is a submission, not a setting - the same rule documents follow (see
+  // lib/publish). `current` is private because the quiz is seconds old: there is
+  // no audience yet for the hold to take away, so waiting costs nothing.
+  const { visibility, submitted } = resolvePublish({
+    requested,
+    current: "private",
+    isAdmin: getViewer().admin,
+  });
+  const share = setShare(quiz.id, { visibility, chapter: getViewer().chapter });
+  if (submitted) {
+    enqueue({
+      resourceId: quiz.id,
+      kind: "quiz",
+      owner: quiz.owner,
+      title: quiz.title,
+      reason: "submitted",
+      requestedVisibility: "public",
+    });
+    recordAudit("quiz.submitted", quiz.title);
   }
   recordAudit("quiz.create", quiz.title);
-  return NextResponse.json({ id: quiz.id, title: quiz.title, questionCount: quiz.questions.length });
+  return NextResponse.json({
+    id: quiz.id,
+    title: quiz.title,
+    questionCount: quiz.questions.length,
+    // What the quiz is actually scoped to, which is not always what was asked
+    // for: the create screen otherwise has only its own dropdown to go on.
+    visibility: share.visibility,
+    ...(submitted ? { submittedForReview: true } : {}),
+  });
 }

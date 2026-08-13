@@ -2,20 +2,44 @@
  * AI content moderation via OpenAI's free moderation endpoint.
  *
  * Study material that users author is run through `omni-moderation-latest`
- * before it is stored, so obviously harmful content is refused up front. The
- * model is multimodal, so both TEXT (deck cards, quiz questions, titles) and
- * IMAGES (card/question pictures, image uploads) can be checked. The endpoint
- * is free to call.
+ * before it is stored. The model is multimodal, so both TEXT (deck cards, quiz
+ * questions, titles) and IMAGES (card/question pictures, image uploads) can be
+ * checked.
  *
- * Posture:
- *   - No OPENAI_API_KEY  -> moderation is SKIPPED (checked: false, allowed).
- *     The feature is opt-in via env, so a local/demo deploy stays keyless.
- *   - API error / timeout -> FAIL OPEN (allowed). A moderation outage must not
- *     block every upload; the audit log still records the create.
- *   - Content flagged     -> BLOCKED, with the tripped category names.
+ * FREE TO CALL, BUT NOT ON A ZERO BALANCE. OpenAI does not charge for this
+ * endpoint, which reads as "no billing needed" and isn't: an account with no
+ * credit is refused, and refused as a bare 429 "Too Many Requests" with no
+ * rate-limit headers and no error code. That is indistinguishable from real
+ * throttling — /v1/chat/completions returns the actual cause
+ * (credit_balance_exhausted) for the same account state, and /v1/models still
+ * answers 200, so the key looks fine throughout. Diagnose with
+ * `node scripts/moderation-probe.mjs`, which knows this and says so.
+ *
+ * What this module returns:
+ *   - No OPENAI_API_KEY   -> SKIPPED (checked: false, allowed).
+ *   - API error / timeout -> SKIPPED (checked: false, allowed), and recorded
+ *     as a failed call so moderationHealth() can report the outage.
+ *   - Content flagged     -> flagged, with the tripped category names.
+ *
+ * What CALLERS do with that is not decided here, and differs by route. The
+ * upload path routes both `flagged` and `checked: false` through
+ * lib/moderation-gate, which quarantines rather than admitting — so a skipped
+ * check becomes review latency, not a hole. Other create paths still treat
+ * `allowed` as permission to store, which means a SKIPPED result sails through
+ * as if examined. Don't read the values below as the platform's posture; read
+ * the caller's.
  */
 
-const ENDPOINT = "https://api.openai.com/v1/moderations";
+/**
+ * Overridable so the pipeline can be exercised against a stub.
+ *
+ * Worth having beyond testing: the endpoint is free per call, but OpenAI still
+ * refuses it on a zero credit balance — and refuses it with a bare "Too Many
+ * Requests" rather than the real reason, so the failure looks like throttling.
+ * Being able to point this somewhere else is how you tell "our integration is
+ * broken" apart from "their billing is".
+ */
+const ENDPOINT = `${process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1"}/moderations`;
 const MODEL = "omni-moderation-latest";
 // The endpoint truncates long text; cap what we send to keep latency sane.
 const MAX_INPUT_CHARS = 40_000;
@@ -46,6 +70,71 @@ export function moderationConfigured(): boolean {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
+// ---- liveness ------------------------------------------------------------
+//
+// `configured` only says a key is present, and that was the whole of the admin
+// indicator. When the endpoint started answering 429, every call fail-opened to
+// SKIPPED, the gate correctly quarantined instead of admitting — and the
+// console still read "AI moderation: On, 0 items blocked", which looks like a
+// healthy quiet system rather than one examining nothing. Recording outcomes is
+// what makes "on" and "working" different claims.
+
+interface CallStats {
+  calls: number;
+  failures: number;
+  lastOk: boolean;
+  lastFailureAt?: number;
+  /** HTTP status of the last failed call; absent when it failed before a response. */
+  lastStatus?: number;
+}
+
+const statsHolder = globalThis as unknown as { __vitalsModStats?: CallStats };
+const stats: CallStats = (statsHolder.__vitalsModStats ??= { calls: 0, failures: 0, lastOk: true });
+
+function recordCall(ok: boolean, status?: number): void {
+  stats.calls++;
+  stats.lastOk = ok;
+  if (!ok) {
+    stats.failures++;
+    stats.lastFailureAt = Date.now();
+    stats.lastStatus = status;
+  }
+}
+
+export interface ModerationHealth {
+  /** A key is set. Says nothing about whether calls succeed. */
+  configured: boolean;
+  calls: number;
+  failures: number;
+  /** A key is set but the most recent call did not get through. */
+  degraded: boolean;
+  lastFailureAt?: number;
+  lastStatus?: number;
+}
+
+export function moderationHealth(): ModerationHealth {
+  const configured = moderationConfigured();
+  return {
+    configured,
+    calls: stats.calls,
+    failures: stats.failures,
+    // Keyed on the LAST call rather than any failure ever: one blip in an
+    // hour-old process isn't an outage, and a currently-failing endpoint is.
+    degraded: configured && stats.calls > 0 && !stats.lastOk,
+    ...(stats.lastFailureAt ? { lastFailureAt: stats.lastFailureAt } : {}),
+    ...(stats.lastStatus ? { lastStatus: stats.lastStatus } : {}),
+  };
+}
+
+/** Test-only: forget recorded call outcomes. */
+export function __resetModerationStats(): void {
+  stats.calls = 0;
+  stats.failures = 0;
+  stats.lastOk = true;
+  delete stats.lastFailureAt;
+  delete stats.lastStatus;
+}
+
 /** Human-readable reason for a blocked create, e.g. "violence, hate". */
 export function flaggedReason(result: ModerationResult): string {
   return result.categories.join(", ");
@@ -70,12 +159,19 @@ async function callModeration(input: string | InputItem[]): Promise<ModerationRe
       body: JSON.stringify({ model: MODEL, input }),
       signal: controller.signal,
     });
-    if (!res.ok) return SKIPPED; // fail open on a bad response
+    if (!res.ok) {
+      recordCall(false, res.status); // fail open on a bad response
+      return SKIPPED;
+    }
     const data = (await res.json()) as {
       results?: Array<{ flagged?: boolean; categories?: Record<string, boolean> }>;
     };
     const result = data.results?.[0];
-    if (!result) return SKIPPED;
+    if (!result) {
+      recordCall(false, res.status);
+      return SKIPPED;
+    }
+    recordCall(true);
     const flagged = Boolean(result.flagged);
     const categories = flagged
       ? Object.entries(result.categories ?? {})
@@ -84,7 +180,8 @@ async function callModeration(input: string | InputItem[]): Promise<ModerationRe
       : [];
     return { allowed: !flagged, flagged, categories, checked: true };
   } catch {
-    return SKIPPED; // fail open on network error / timeout / abort
+    recordCall(false); // no response at all — network error / timeout / abort
+    return SKIPPED; // fail open
   } finally {
     clearTimeout(timer);
   }

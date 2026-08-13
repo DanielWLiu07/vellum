@@ -4,7 +4,8 @@ import { enterRequest } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { addComment, getComment, listComments, removeComment, type CommentTarget } from "@/lib/comments";
 import { getModule } from "@/lib/modules";
-import { flaggedReason, moderateText } from "@/lib/moderation";
+import { moderateText } from "@/lib/moderation";
+import { holdlessDisposition } from "@/lib/moderation-gate";
 import { getViewer } from "@/lib/profile";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { getDoc } from "@/lib/store";
@@ -63,10 +64,25 @@ export async function POST(req: NextRequest) {
   if (!type || !target || !text.trim()) return NextResponse.json({ error: "bad_request" }, { status: 400 });
   if (!(await targetOk(type, target))) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  const mod = await moderateText(text);
-  if (!mod.allowed) {
-    recordAudit("comment.blocked", target, flaggedReason(mod));
-    return NextResponse.json({ error: "content_flagged", categories: mod.categories }, { status: 422 });
+  // A comment is posted straight into a thread other members read, and there is
+  // no private state to hold it in while a human looks — see
+  // holdlessDisposition, which is where the reasoning lives. Both refusals cost
+  // the author a retype and nothing more.
+  const gate = holdlessDisposition(await moderateText(text));
+  if (gate.action === "refuse" && gate.reason === "unchecked") {
+    // The old `!mod.allowed` read a never-ran check as a pass, so an outage
+    // published unexamined comments as though they had been cleared. 503, not
+    // 422: nothing is wrong with what they wrote, and the same text will go
+    // through once moderation answers again.
+    recordAudit("comment.blocked", target, "not checked - moderation unavailable");
+    return NextResponse.json(
+      { error: "moderation_unavailable" },
+      { status: 503, headers: { "Retry-After": "60", "Cache-Control": "no-store" } },
+    );
+  }
+  if (gate.action === "refuse") {
+    recordAudit("comment.blocked", target, gate.categories.join(", "));
+    return NextResponse.json({ error: "content_flagged", categories: gate.categories }, { status: 422 });
   }
   const c = addComment({ targetType: type, targetId: target, author: getViewer().owner, body: text });
   if (!c) return NextResponse.json({ error: "empty" }, { status: 400 });

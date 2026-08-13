@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
-import { flaggedReason, moderateText } from "@/lib/moderation";
+import { moderateText } from "@/lib/moderation";
+import { holdlessDisposition } from "@/lib/moderation-gate";
 import { getProfile, updateProfile } from "@/lib/profile";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
@@ -67,10 +68,23 @@ export async function PATCH(req: NextRequest) {
   // by /api/images, so we don't re-check them here.
   const text = [patch.displayName, patch.bio, patch.handle].filter(Boolean).join("\n").trim();
   if (text) {
-    const mod = await moderateText(text);
-    if (!mod.allowed) {
-      recordAudit("profile.blocked", patch.displayName || "profile", flaggedReason(mod));
-      return NextResponse.json({ error: "content_flagged", categories: mod.categories }, { status: 422 });
+    // A profile has one live copy of each field, shown next to this member's
+    // name wherever they appear. There is no draft state to hold an edit in, so
+    // a refused edit simply leaves the previous values standing — nothing the
+    // member had is lost. See holdlessDisposition.
+    const gate = holdlessDisposition(await moderateText(text));
+    if (gate.action === "refuse" && gate.reason === "unchecked") {
+      // Was a silent pass: a skipped check reports allowed:true, so during an
+      // outage a bio went live having been examined by nobody.
+      recordAudit("profile.blocked", patch.displayName || "profile", "not checked - moderation unavailable");
+      return NextResponse.json(
+        { error: "moderation_unavailable" },
+        { status: 503, headers: { "Retry-After": "60", "Cache-Control": "no-store" } },
+      );
+    }
+    if (gate.action === "refuse") {
+      recordAudit("profile.blocked", patch.displayName || "profile", gate.categories.join(", "));
+      return NextResponse.json({ error: "content_flagged", categories: gate.categories }, { status: 422 });
     }
   }
 

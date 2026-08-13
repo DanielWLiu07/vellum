@@ -4,6 +4,8 @@ import { enterRequest } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { type Card, createDeck, listDecks } from "@/lib/decks";
 import { flaggedReason, moderateText } from "@/lib/moderation";
+import { enqueue } from "@/lib/moderation-queue";
+import { resolvePublish } from "@/lib/publish";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { getViewer } from "@/lib/profile";
 import { setShare } from "@/lib/resource-share";
@@ -63,10 +65,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "content_flagged", categories: mod.categories }, { status: 422 });
   }
   const deck = createDeck(title, cards, getViewer().owner);
-  // Optional visibility chosen on the create screen (drafts default to private).
-  if (typeof body?.visibility === "string") {
-    setShare(deck.id, { visibility: normalizeVisibility(body.visibility), chapter: getViewer().chapter });
+  // Scope every new deck EXPLICITLY, including when the caller named no
+  // visibility. Without a share row lib/decks composes in its own fallback,
+  // `public`, so a create that simply left the field out reached every member
+  // in the country without passing the gate below — the whole rule skipped by
+  // omitting one word. An unscoped deck is private, the way an upload is; it
+  // reaches an audience by asking.
+  const requested = typeof body?.visibility === "string" ? normalizeVisibility(body.visibility) : "private";
+  // Public is a submission, not a setting - the same rule documents follow (see
+  // lib/publish). `current` is private because the deck is seconds old: there is
+  // no audience yet for the hold to take away, so waiting costs nothing.
+  const { visibility, submitted } = resolvePublish({
+    requested,
+    current: "private",
+    isAdmin: getViewer().admin,
+  });
+  const share = setShare(deck.id, { visibility, chapter: getViewer().chapter });
+  if (submitted) {
+    enqueue({
+      resourceId: deck.id,
+      kind: "deck",
+      owner: deck.owner,
+      title: deck.title,
+      reason: "submitted",
+      requestedVisibility: "public",
+    });
+    recordAudit("deck.submitted", deck.title);
   }
   recordAudit("deck.create", deck.title);
-  return NextResponse.json({ id: deck.id, title: deck.title, cardCount: deck.cards.length });
+  return NextResponse.json({
+    id: deck.id,
+    title: deck.title,
+    cardCount: deck.cards.length,
+    // What the deck is actually scoped to, which is not always what was asked
+    // for: the create screen otherwise has only its own dropdown to go on.
+    visibility: share.visibility,
+    ...(submitted ? { submittedForReview: true } : {}),
+  });
 }

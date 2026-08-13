@@ -16,8 +16,10 @@ import { moderatePdfContent } from "@/lib/pdf-moderation";
 import { getViewer } from "@/lib/profile";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { setResourceMeta } from "@/lib/resource-meta";
+import { canUpload } from "@/lib/settings";
 import { addUpload } from "@/lib/store";
 import { setThumbnail } from "@/lib/thumbnails";
+import { viewerRole } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +48,11 @@ export async function POST(req: NextRequest) {
   await enterRequest(req);
   if (process.env.VELLUM_DEMO_MODE !== "1") {
     return NextResponse.json({ error: "dashboard_disabled" }, { status: 404 });
+  }
+  // "Allow student uploads" from the admin Settings pane. Only students are
+  // ever restricted — locking out advisors would be a foot-gun, not a control.
+  if (!canUpload(viewerRole())) {
+    return NextResponse.json({ error: "uploads_disabled" }, { status: 403 });
   }
   const rl = rateLimit(`upload:${clientIp(req)}`, 10, 60_000);
   if (!rl.ok) {
@@ -94,8 +101,14 @@ export async function POST(req: NextRequest) {
     coverageGap = `page images checked ${pdfMod.pagesChecked}/${pdfMod.totalPages}`;
   }
 
-  const checks: Disposition[] = [disposition(nameMod)];
-  if (bodyMod) checks.push(disposition(bodyMod, coverageGap));
+  // Kept apart rather than pushed straight into `checks`: which one refused is
+  // the difference between "rename this" and "this picture can't be uploaded",
+  // and the uploader can't act on the refusal without knowing.
+  const nameDisp = disposition(nameMod);
+  const bodyDisp = bodyMod ? disposition(bodyMod, coverageGap) : null;
+
+  const checks: Disposition[] = [nameDisp];
+  if (bodyDisp) checks.push(bodyDisp);
   // A partially-covered PDF reports checked:true (the text pass ran), so
   // disposition() alone would clear it. Add the gap as its own hold.
   if (coverageGap && bodyMod?.checked && moderationConfigured()) {
@@ -105,7 +118,14 @@ export async function POST(req: NextRequest) {
 
   if (disp.action === "refuse") {
     recordAudit("document.blocked", name, disp.categories.join(", "));
-    return NextResponse.json({ error: "content_flagged", categories: disp.categories }, { status: 422 });
+    return NextResponse.json(
+      {
+        error: "content_flagged",
+        categories: disp.categories,
+        source: nameDisp.action === "refuse" ? "title" : "content",
+      },
+      { status: 422 },
+    );
   }
   // Copyright screen: scan the title and (for PDFs) the document text for clear
   // markers of third-party published material, so we don't host an infringing
@@ -162,6 +182,12 @@ export async function POST(req: NextRequest) {
     name: meta.name,
     sizeBytes: meta.sizeBytes,
     contentType,
-    ...(disp.action === "quarantine" ? { heldForReview: true } : {}),
+    // The hold has to travel with the reason. "Held for review" alone reads as
+    // an accusation when the cause was a size cap nobody looked past, and the
+    // owner needs to know sharing is what's blocked - the file is still theirs
+    // to open.
+    ...(disp.action === "quarantine"
+      ? { heldForReview: true, holdReason: disp.reason, categories: disp.categories }
+      : {}),
   });
 }

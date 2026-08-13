@@ -21,6 +21,8 @@ import { __resetRateLimit } from "@/lib/rate-limit";
 
 const ALLOWED = { allowed: true, flagged: false, categories: [], checked: true };
 const FLAGGED = { allowed: false, flagged: true, categories: ["hate"], checked: true };
+// What moderateText returns when it never ran: allowed, but examined by nobody.
+const SKIPPED = { allowed: true, flagged: false, categories: [], checked: false };
 
 // Admin comes from the signed session, never from the local profile (role isn't
 // patchable — that was a self-escalation path). MEMBER keeps the "you" owner key
@@ -79,6 +81,21 @@ describe("folders API", () => {
     const res = await POST(postReq(MEMBER, { name: "hateful folder" }));
     expect(res.status).toBe(422);
     expect((await res.json()).error).toBe("content_flagged");
+  });
+
+  // The fail-open this replaced. `allowed: true` on a check that never ran made
+  // `if (!mod.allowed)` false, so an outage stored names as examined and clean.
+  // The moderation account is answering 429 to every call right now, which
+  // makes this the live path rather than a hypothetical one.
+  it("refuses a name nobody could check, instead of storing it as clean", async () => {
+    moderateText.mockResolvedValue(SKIPPED);
+    const before = (await (await GET(listReq())).json()).folders.length;
+    const res = await POST(postReq(MEMBER, { name: "Unchecked set" }));
+    expect(res.status).toBe(503);
+    // Not 422 and not "flagged": nothing is wrong with the name, and the same
+    // request will go through once moderation answers again.
+    expect((await res.json()).error).toBe("moderation_unavailable");
+    expect((await (await GET(listReq())).json()).folders.length).toBe(before);
   });
 
   it("rejects an empty name", async () => {

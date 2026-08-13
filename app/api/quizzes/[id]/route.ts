@@ -3,6 +3,8 @@ import { enterRequest } from "@/lib/auth";
 
 import { recordAudit } from "@/lib/audit";
 import { flaggedReason, moderateText } from "@/lib/moderation";
+import { deleteQueueFor, describeOpenReview, enqueue, isQuarantined } from "@/lib/moderation-queue";
+import { resolvePublish } from "@/lib/publish";
 import { type QuizQuestion, coerceChoice, deleteQuiz, getQuiz, getQuizForTaker, updateQuiz } from "@/lib/quizzes";
 import { deleteShare, setShare } from "@/lib/resource-share";
 import { deleteFavoritesFor } from "@/lib/favorites";
@@ -105,12 +107,70 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  if (wantsSharing) setShare(id, share, { visibility: "public", chapter: "" });
+  // Going public is a submission, not a setting: it puts the quiz in front of
+  // every HOSA member in the country, which is the same exposure a document
+  // carries and gets the same answer. Chapter and private stay the owner's own
+  // call, and an admin publishes directly - see lib/publish for where the line
+  // sits. Captured before the decision rewrites it, so a clamp can be compared
+  // against what the owner actually asked for.
+  const requestedVisibility = share.visibility;
+  let submitted = false;
+  // Read the hold BEFORE anything is enqueued. A pending submission counts as a
+  // hold, so queuing first would make the clamp below force this very quiz to
+  // private - charging the owner the audience they already had as the price of
+  // asking about a wider one, which is the outcome lib/publish exists to avoid.
+  const heldForReview = isQuarantined(id);
+  if (share.visibility !== undefined) {
+    const decision = resolvePublish({
+      requested: share.visibility,
+      current: quiz.visibility,
+      isAdmin: getViewer().admin,
+    });
+    share.visibility = decision.visibility;
+    submitted = decision.submitted;
+  }
+
+  // Seed the defaults from the quiz's CURRENT scope. The literal that used to
+  // sit here restated lib/quizzes' own fallback for a quiz with no share row, so
+  // the two could only ever drift apart - and every drift would be a people-only
+  // update handing the quiz to an audience nobody asked for.
+  if (wantsSharing) setShare(id, share, { visibility: quiz.visibility, chapter: quiz.chapter });
 
   const updated = getQuiz(id)!;
+  if (submitted && !heldForReview) {
+    enqueue({
+      resourceId: id,
+      kind: "quiz",
+      owner: quiz.owner,
+      title: updated.title,
+      reason: "submitted",
+      requestedVisibility: "public",
+    });
+    recordAudit("quiz.submitted", updated.title);
+  }
   recordAudit("quiz.update", updated.title);
   return NextResponse.json(
-    { id: updated.id, title: updated.title, questionCount: updated.questions.length, visibility: updated.visibility, people: updated.people },
+    {
+      id: updated.id,
+      title: updated.title,
+      questionCount: updated.questions.length,
+      visibility: updated.visibility,
+      people: updated.people,
+      // Held at a narrower scope pending review - say so, or the share dialog
+      // reports the save it asked for and shows the old scope on refresh.
+      ...(submitted ? { submittedForReview: true } : {}),
+      // A scope refused outright rather than queued: a held quiz, or an owner
+      // banned from public sharing. Reporting {ok} without this is how "I
+      // clicked Share and nothing moved" became a bug with no explanation
+      // anywhere.
+      ...(!submitted && requestedVisibility !== undefined && updated.visibility !== requestedVisibility
+        ? {
+            clamped: true,
+            clampedTo: updated.visibility,
+            clampedReason: heldForReview ? "held_for_review" : "sharing_restricted",
+          }
+        : {}),
+    },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -131,5 +191,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   deleteShare(id); // drop sidecar entries so they don't accumulate as orphans
   deleteFavoritesFor(id);
   recordAudit("quiz.delete", quiz.title);
+  // Same cleanup and the same second line as the document and deck paths. See
+  // deleteQueueFor for why deleting under review is allowed but not silent.
+  const openReview = deleteQueueFor(id);
+  if (openReview.length > 0) {
+    recordAudit("moderation.deleted_under_review", quiz.title, describeOpenReview(openReview));
+  }
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -20,6 +20,8 @@ import { __resetProfile } from "@/lib/profile";
 
 const ALLOWED = { allowed: true, flagged: false, categories: [], checked: true };
 const FLAGGED = { allowed: false, flagged: true, categories: ["hate"], checked: true };
+// What moderateText returns when it never ran: allowed, but examined by nobody.
+const SKIPPED = { allowed: true, flagged: false, categories: [], checked: false };
 
 // Admin comes from the signed session, never from the local profile (role isn't
 // patchable — that was a self-escalation path). MEMBER keeps the "you" owner key
@@ -73,6 +75,17 @@ describe("PATCH /api/folders/[id]", () => {
     const res = await patch(MEMBER, f.id, { name: "hateful" });
     expect(res.status).toBe(422);
     expect(getFolder(f.id)!.name).toBe("Old"); // unchanged
+  });
+
+  // A rename has nothing to hold, so the outage case refuses like the create
+  // path does. Previously it passed: a check that never ran reports allowed.
+  it("refuses a rename nobody could check, leaving the old name", async () => {
+    const f = createFolder("Old", "you", false);
+    moderateText.mockResolvedValue(SKIPPED);
+    const res = await patch(MEMBER, f.id, { name: "Unchecked" });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe("moderation_unavailable");
+    expect(getFolder(f.id)!.name).toBe("Old");
   });
 
   it("rejects an empty name", async () => {
