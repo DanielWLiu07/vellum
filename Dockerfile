@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Multi-stage build for Vellum (Next.js standalone output).
+# Multi-stage build for HOSA Vitals (Next.js standalone output).
 # Not needed for Vercel — for self-hosting / a containerized pipeline.
 
 # 1. Install dependencies

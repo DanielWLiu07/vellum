@@ -12,8 +12,8 @@ const dest = join(root, "public", "pdf.worker.min.mjs");
 try {
   await mkdir(join(root, "public"), { recursive: true });
   await copyFile(src, dest);
-  console.log("[vellum] copied pdf.worker.min.mjs -> public/");
+  console.log("[vitals] copied pdf.worker.min.mjs -> public/");
 } catch (err) {
-  console.error("[vellum] failed to copy pdf worker:", err.message);
+  console.error("[vitals] failed to copy pdf worker:", err.message);
   process.exit(1);
 }

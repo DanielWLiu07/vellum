@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const PAGES = [
-  ["Vellum", "Secure document viewer", "This is a demo document rendered to canvas,", "watermarked, and locked against download."],
+  ["HOSA Vitals", "Secure document viewer", "This is a demo document rendered to canvas,", "watermarked, and locked against download."],
   ["Capability tokens", "The host app signs a short-lived token.", "It carries a presigned source URL,", "watermark text, permissions, and an expiry."],
   ["Zero-knowledge proxy", "The viewer holds no database and no", "storage credentials. It trusts a request", "only because the HMAC signature verifies."],
   ["Watermarking", "Every page is stamped with the viewer's", "identity, baked into the pixels so it", "survives screenshots and DOM edits."],
@@ -73,4 +73,4 @@ pdf += `trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EO
 
 await mkdir(join(root, "public"), { recursive: true });
 await writeFile(join(root, "public", "sample.pdf"), pdf, "latin1");
-console.log(`[vellum] wrote public/sample.pdf (${PAGES.length} pages)`);
+console.log(`[vitals] wrote public/sample.pdf (${PAGES.length} pages)`);
