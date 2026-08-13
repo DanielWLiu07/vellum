@@ -11,12 +11,22 @@
 import type { NextRequest } from "next/server";
 
 import { ensureReady } from "./bootstrap";
-import { type Identity, verifyIdentityToken } from "./identity-token";
+import {
+  type Identity,
+  mintIdentityToken,
+  SESSION_COOKIE,
+  verifyIdentityToken,
+} from "./identity-token";
 import { getRequestSession, setRequestSession } from "./request-context";
 import { rememberUser } from "./users";
 import type { Viewer } from "./visibility";
 
-export const SESSION_COOKIE = "vitals_session";
+// Re-exported so existing callers keep their import site; the constant itself
+// lives in identity-token so proxy.ts can reach it without the store imports.
+export { SESSION_COOKIE };
+
+/** How long a Vitals session lasts, independent of the handoff token's life. */
+export const SESSION_TTL_SECONDS = 8 * 3600;
 
 function secret(): string {
   return process.env.VITALS_AUTH_SECRET ?? "";
@@ -32,6 +42,31 @@ export function readIdentity(token: string | undefined | null): Identity | null 
   if (!token) return null;
   const r = verifyIdentityToken(secret(), token);
   return r.ok ? r.identity : null;
+}
+
+/**
+ * Mint the session cookie value for an already-verified identity.
+ *
+ * The handoff token arrives in a URL query parameter, so a copy of it lands in
+ * access logs, CDN logs, and browser history. Reusing that copy AS the session
+ * meant one logged URL was a full-length session for that member. Minting a
+ * separate token here decouples the two lifetimes: the handoff token only has
+ * to survive the redirect, so HOSA can cut it to about a minute while the
+ * session keeps its full eight hours.
+ *
+ * Note this does not by itself invalidate the URL token — it stays valid until
+ * its own exp. Shortening the mint TTL on the HOSA side is what closes the
+ * window; this change is what makes that safe to do.
+ */
+export function mintSessionToken(id: Identity): string {
+  return mintIdentityToken(secret(), {
+    sub: id.sub,
+    name: id.name,
+    chapter: id.chapter,
+    chapterName: id.chapterName,
+    role: id.role,
+    ttlSeconds: SESSION_TTL_SECONDS,
+  });
 }
 
 export function viewerFromIdentity(id: Identity): Viewer {

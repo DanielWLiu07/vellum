@@ -19,6 +19,13 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const IDENTITY_VERSION = "vid1";
 
+/**
+ * Name of the cookie holding the session token. Lives here rather than in
+ * lib/auth so the request gate (proxy.ts) can read it without pulling the
+ * durable stores that lib/auth imports.
+ */
+export const SESSION_COOKIE = "vitals_session";
+
 export type MemberRole = "student" | "trainer" | "advisor" | "admin";
 
 export interface Identity {

@@ -118,13 +118,29 @@ export function updateProfile(patch: ProfilePatch): Profile {
 }
 
 /**
+ * A viewer that owns nothing and belongs to no chapter. Every scoped check
+ * (canView, roster, assignments) fails closed against it.
+ */
+const NOBODY: Viewer = { owner: "", chapter: "", admin: false };
+
+/**
  * The permission viewer - the source of truth for access checks. An
- * authenticated HOSA session IS the viewer (real id / chapter / role). With no
- * session (local standalone demo), it falls back to the local demo profile.
+ * authenticated HOSA session IS the viewer (real id / chapter / role).
+ *
+ * With no session the answer depends on whether a host app exists. Attached to
+ * HOSA (a shared secret is set), there is no such thing as a legitimate
+ * anonymous visitor, so an absent session resolves to NOBODY - handing one the
+ * demo profile would have put an anonymous caller on a real chapter. Standing
+ * alone (no secret), the demo profile IS the intended identity and the local
+ * dashboard works without the main site.
+ *
+ * proxy.ts refuses unauthenticated requests before they reach a route; this is
+ * the layer underneath it, so a route reached another way still fails closed.
  */
 export function getViewer(): Viewer {
   const session = getRequestSession();
   if (session) return session.viewer;
+  if ((process.env.VITALS_AUTH_SECRET ?? "").length >= 16) return NOBODY;
   const p = profileFor(OWNER_KEY);
   return { owner: p.owner, chapter: p.chapter, admin: p.role === "admin" };
 }
