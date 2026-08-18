@@ -4,12 +4,7 @@ import { useEffect, useMemo } from "react";
 
 import { initials } from "@/lib/avatar";
 
-import { useMe, useRoster, type RosterMember } from "./use-assignments";
-
-/** Roles the server lets hand work out — mirrors canAssign in lib/users. */
-function canAssign(role?: string): boolean {
-  return role === "trainer" || role === "advisor" || role === "admin";
-}
+import { canAssign, useMe, useRoster, type RosterMember } from "./use-assignments";
 
 /**
  * Completion counts come from the server. They're absent on a reduced roster,

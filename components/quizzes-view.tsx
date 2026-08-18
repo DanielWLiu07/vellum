@@ -7,6 +7,7 @@ import type { QuizMeta } from "@/lib/quizzes";
 import { withBack } from "@/lib/return-to";
 import { canEdit, canManageSharing } from "@/lib/visibility";
 
+import { canAssign, useMe } from "./use-assignments";
 import { useViewer } from "./use-viewer";
 
 import { FavoriteButton } from "./favorite-button";
@@ -17,6 +18,10 @@ const VIS_LABEL = { public: "Public", chapter: "Chapter", private: "Private" } a
 
 export function QuizzesView() {
   const viewer = useViewer();
+  const me = useMe();
+  // Presentation only — /api/quizzes/[id]/attempts re-decides against the
+  // signed session and filters the rows, so this can never widen anything.
+  const isStaff = canAssign(me?.role);
   // Everything this list opens carries the way back to it (role + section
   // included), so finishing a quiz returns here instead of the dashboard's
   // default landing section.
@@ -133,7 +138,13 @@ export function QuizzesView() {
                 <div className="tile-actions">
                   <Link className="btn primary" href={withBack(`/quizzes/${q.id}`, backHref)}>Take</Link>
                   {editable && <Link className="btn" href={withBack(`/quizzes/${q.id}/edit`, backHref)}>Edit</Link>}
-                  {mine && q.isExam && <Link className="btn" href={withBack(`/quizzes/${q.id}/attempts`, backHref)}>Attempts</Link>}
+                  {/* Attempts used to be owner-only, which meant a trainer had
+                      no way in on HOSA-authored exams — the ones their students
+                      actually sit. Chapter staff get the link too; the route
+                      then filters to their own chapter's takers, so following
+                      it on someone else's quiz shows their members and nobody
+                      else's. */}
+                  {(mine || isStaff) && q.isExam && <Link className="btn" href={withBack(`/quizzes/${q.id}/attempts`, backHref)}>Attempts</Link>}
                   <button type="button" className="btn" disabled={busyId === q.id} onClick={() => copy(q)}>Make a copy</button>
                   {canShare && (
                     <button

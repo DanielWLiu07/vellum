@@ -109,7 +109,7 @@ export function QuizAttempts({ quizId, backHref = RETURN_TO.quizzes }: {
     return (
       <div className="upload-card">
         <h1 className="upload-h">Attempts unavailable</h1>
-        <p className="dash-sub">This quiz doesn&apos;t exist, or you&apos;re not its owner. Only the owner or an admin can review exam attempts.</p>
+        <p className="dash-sub">This quiz doesn&apos;t exist, or it isn&apos;t yours to review. Its owner and admins see every attempt; a trainer or advisor sees attempts by members of their own chapter.</p>
         <Link className="btn" href={backHref}>← {backLabel}</Link>
       </div>
     );

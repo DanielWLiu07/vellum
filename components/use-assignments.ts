@@ -292,3 +292,18 @@ export async function assignContent(input: {
       : `Assigned "${input.title}" to ${input.assigneeName}`,
   };
 }
+
+/**
+ * Roles the server lets hand work out, and — since the same three roles are the
+ * ones with oversight of a chapter — the roles that get the staff affordances:
+ * Assign on the roster, Assigned work, Attempts on a chapter member's exam.
+ *
+ * A CLIENT mirror of canAssign in lib/users, which is the authority; that module
+ * carries the signed-user store, so a component importing it for one predicate
+ * would drag the directory into the bundle. This is presentation only. Every
+ * route re-decides for itself against the SIGNED session, so a viewer who flips
+ * the preview switcher gets buttons that then refuse them — never access.
+ */
+export function canAssign(role?: string): boolean {
+  return role === "trainer" || role === "advisor" || role === "admin";
+}
