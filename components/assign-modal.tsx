@@ -177,9 +177,15 @@ export function AssignModal({ member, docs, onClose, onChanged, notify }: {
           ) : (
             assignments.map((a) => (
               <div key={a.id} className="assign-row" style={{ cursor: "default" }}>
-                <span>
-                  {a.title}
-                  <span className="dash-muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                {/* Title over meta, not title-then-meta inline. Sharing one
+                    inline flow meant a long pair wrapped wherever it ran out of
+                    room — splitting "Document · due Aug 24" and leaving the date
+                    stranded on its own line under the title, reading as a value
+                    belonging to nothing. Stacking also matches how the same
+                    facts are laid out in Assigned work. */}
+                <span className="assign-row-text">
+                  <span className="assign-row-title">{a.title}</span>
+                  <span className="dash-muted assign-row-meta">
                     {KIND_LABEL[a.kind]}
                     {a.status === "done" ? " · done" : formatDue(a.dueAt) ? ` · due ${formatDue(a.dueAt)}` : ""}
                   </span>

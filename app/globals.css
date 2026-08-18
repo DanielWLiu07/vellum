@@ -1139,6 +1139,27 @@ h3 {
   border-color: var(--teal);
   background: var(--tan-soft);
 }
+/* Currently-assigned rows: title over meta.
+   These used to be one inline flow, so a long pair wrapped wherever it ran out
+   of room - splitting "Document · due Aug 24" and stranding the date on its own
+   line under the title, where it read as a value belonging to nothing.
+   `min-width: 0` is what lets the column shrink at all: a flex item will not go
+   below its min-content width without it, which is what forced the wrap into
+   the meta in the first place. */
+.assign-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.assign-row-title {
+  overflow-wrap: anywhere;
+}
+.assign-row-meta {
+  font-size: 12px;
+  white-space: nowrap;
+}
 .assign-row .lesson-icon {
   width: 28px;
   height: 28px;
@@ -2185,6 +2206,17 @@ h3 {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 4px;
+  /* Stay inside whatever contains it. Sized to its content it burst out of the
+     assign dialog by 71px - .dash-modal is width:min(440px, …) with 24px of
+     padding, so 392px of room for a four-tab strip that wants 486px, and
+     inline-flex has no reason of its own to stop.
+     Wrap rather than scroll. Scrolling fitted the box but pushed "Quiz" out of
+     sight with no affordance that anything was there, which hides a whole
+     content kind from the person choosing what to assign - worse than the
+     overflow it replaced. Wrapping keeps every tab on screen, and holds if a
+     fifth kind is ever added. */
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 .seg-btn {
   appearance: none;
@@ -2199,6 +2231,10 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  /* Don't let a tab wrap onto two lines when the strip is scrolling - a
+     half-height "Flash / cards" reads as broken rather than as scrollable. */
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 .seg-btn:hover { color: var(--ink); }
 .seg-btn.is-active { background: var(--surface); color: var(--maroon); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
