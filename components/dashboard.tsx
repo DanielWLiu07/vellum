@@ -25,6 +25,7 @@ import { ModerationView } from "./moderation-view";
 import { MyAttempts } from "./my-attempts";
 import { ModulesLobby } from "./modules-lobby";
 import { AssignModal } from "./assign-modal";
+import { AssignedWorkView } from "./assigned-work-view";
 import { ChapterView } from "./chapter-view";
 import { ChapterSummary } from "./chapter-summary";
 import {
@@ -42,7 +43,12 @@ import { useViewer } from "./use-viewer";
 import { DashSidebar } from "@/components/dash-sidebar";
 import { OfficialGuidelinesView } from "@/components/official-guidelines-view";
 import { adminAccess } from "@/lib/admin-gate";
-import { DEFAULT_SECTION, roleFromParam, sectionFromParam } from "@/lib/nav";
+import {
+  DEFAULT_SECTION,
+  roleFromParam,
+  roleToAdopt,
+  sectionFromParam,
+} from "@/lib/nav";
 import { useModal } from "./use-modal";
 import {
   canEdit,
@@ -165,7 +171,11 @@ function DocToolbar({ q, setQ, sort, setSort, shown, total, events, event, setEv
 }
 
 // Sections every role sees the same way, rendered once above the role views.
-const SHARED_SECTIONS = ["guidelines", "modules", "feedback", "chapter"];
+// "assigned" is shared because GET /api/assignments already decides the scope
+// from the SIGNED session — self for a student, chapter for a trainer or
+// advisor, everything for an admin — and refuses to widen. One view can serve
+// every role because the server, not the menu, draws the boundary.
+const SHARED_SECTIONS = ["guidelines", "modules", "feedback", "chapter", "assigned"];
 
 // Sections an advisor shares with students (they are a student too); anything
 // else in the advisor menu is advisor-only and renders in AdvisorView.
@@ -294,6 +304,33 @@ export function Dashboard() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [roleParam, sectionParam, urlRole, urlSection]);
 
+  // Open on the menu you actually are, not on the default one. The decision
+  // itself lives in lib/nav (roleToAdopt) — see the reasoning there; this is
+  // just the part that has to wait for /api/auth/me to answer.
+  //
+  // Adopted ONCE. After the first adoption the switcher belongs to the operator,
+  // and re-adopting would drag an admin previewing the student menu back to
+  // their own every time `me` re-resolved.
+  const adoptedSessionRole = useRef(false);
+  useEffect(() => {
+    if (adoptedSessionRole.current) return;
+    if (!me) return;
+    adoptedSessionRole.current = true;
+    const adopt = roleToAdopt(roleParam, me.role);
+    if (!adopt) return;
+    /* eslint-disable react-hooks/set-state-in-effect -- the signed role arrives asynchronously; it is not derivable during render */
+    setRole(adopt);
+    // Re-resolve the section against the role we just adopted, and never skip
+    // this. Sections are per-role, and the first pass resolved ?section=
+    // against DEFAULT_ROLE — so /dashboard?section=assigned was checked against
+    // the STUDENT menu, found nothing, and silently landed a trainer on "home".
+    // Deep links to a staff-only section only work if this runs again.
+    // sectionFromParam already falls back to DEFAULT_SECTION[adopt] when the
+    // param is absent or not a section that role has.
+    setSection(sectionFromParam(adopt, sectionParam));
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [me, roleParam, sectionParam]);
+
   // Preserve the operator's place: /view links carry a validated back-target
   // so the viewer's "Dashboard" link restores this exact role + section
   // (the deep-link effect above re-hydrates them).
@@ -368,8 +405,16 @@ export function Dashboard() {
           {section === "modules" && <ModulesLobby admin={adminControls} />}
           {section === "feedback" && <FeedbackView admin={adminControls} />}
           {section === "chapter" && <ChapterView refreshToken={assignmentsVersion} onAssign={setAssignTo} />}
+          {section === "assigned" && <AssignedWorkView viewQuery={viewQuery} />}
           {!SHARED_SECTIONS.includes(section) && role === "student" && <StudentView section={section} docs={docs} viewQuery={viewQuery} notify={notify} uploading={uploading} loading={loading} loadError={loadError} onRetry={onRetry} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />}
-          {!SHARED_SECTIONS.includes(section) && role === "trainer" && <TrainerView section={section} {...shared} />}
+          {/* Same split the advisor already used: a trainer is a member too, so
+              the sections they share with students render from StudentView and
+              only the trainer-only ones fall through. That is what gives them
+              Resources — TrainerView never handled it, so the new nav row would
+              otherwise have landed on "coming soon". */}
+          {!SHARED_SECTIONS.includes(section) && role === "trainer" && (STUDENT_SECTIONS.has(section)
+            ? <StudentView section={section} docs={docs} viewQuery={viewQuery} notify={notify} uploading={uploading} loading={loading} loadError={loadError} onRetry={onRetry} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />
+            : <TrainerView section={section} {...shared} />)}
           {!SHARED_SECTIONS.includes(section) && role === "advisor" && (STUDENT_SECTIONS.has(section)
             ? <StudentView section={section} docs={docs} viewQuery={viewQuery} notify={notify} uploading={uploading} loading={loading} loadError={loadError} onRetry={onRetry} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />
             : <AdvisorView section={section} {...shared} />)}

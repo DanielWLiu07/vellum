@@ -45,8 +45,17 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   trainer: [
     CHAPTER_LINK,
+    // The other half of assigning. My chapter hands work out; this is where it
+    // can be looked at afterwards — without it a trainer could assign across a
+    // chapter and then had only a per-member "0/0" to go on.
+    { id: "assigned", label: "Assigned work" },
     { id: "lessons", label: "My lessons" },
     { id: "modules", label: "Modules" },
+    // A trainer could reach their OWN uploads ("My lessons") but not the shared
+    // pool every student browses, which made it possible to assign a resource
+    // sight-unseen. Advisors always had this row; trainers coach off the same
+    // material, so they get it too.
+    { id: "resources", label: "Resources" },
     { id: "flashcards", label: "Flashcards" },
     { id: "quizzes", label: "Quizzes" },
     // Your own exam results. Sits next to Quizzes because that is where you
@@ -63,6 +72,10 @@ export const NAV: Record<Role, NavItem[]> = {
     CHAPTER_LINK,
     { id: "home", label: "Home" },
     { id: "assignments", label: "My assignments" },
+    // Assigned TO you sits directly above assigned BY you — same word, opposite
+    // direction, so the pairing has to be visible or the second reads as a
+    // duplicate of the first.
+    { id: "assigned", label: "Assigned work" },
     { id: "modules", label: "Modules" },
     { id: "resources", label: "Resources" },
     { id: "quizzes", label: "Quizzes" },
@@ -75,6 +88,9 @@ export const NAV: Record<Role, NavItem[]> = {
     CHAPTER_LINK,
     { id: "overview", label: "Overview" },
     { id: "users", label: "Users & roles" },
+    // GET /api/assignments answers "all of them" for an admin, and until now
+    // nothing asked it — the whole platform's assigned work had no reader.
+    { id: "assigned", label: "Assigned work" },
     { id: "modules", label: "Modules" },
     { id: "content", label: "All content" },
     // The queue existed with no way to drain it — held content and no review
@@ -117,4 +133,32 @@ export function roleFromParam(value: string | undefined | null): Role {
 export function sectionFromParam(role: Role, value: string | undefined | null): string {
   const match = NAV[role].find((n) => n.id === value && !n.href);
   return match ? match.id : DEFAULT_SECTION[role];
+}
+
+/**
+ * Which role the dashboard should OPEN on, given the URL and the signed session.
+ * Returns null when the switcher should be left exactly as it is.
+ *
+ * `roleFromParam` falls back to DEFAULT_ROLE ("student"), which is right for a
+ * bare link and wrong for the person signing in: an admin opening /dashboard
+ * landed on the STUDENT menu, so Users & roles, Submissions, Activity log and
+ * Settings were all absent, and the only way to them was a dropdown labelled
+ * "PREVIEW AS" — which reads as a demo toy rather than the route to your own
+ * console.
+ *
+ * An explicit ?role= always wins: deep links and the /view back-target name a
+ * role on purpose, and a session that overrode them would make those links
+ * unable to point anywhere but the caller's own menu.
+ *
+ * This grants NOTHING. It picks which menu is drawn; every admin surface still
+ * intersects it with the signed session's access, and every route re-decides
+ * for itself. A student whose session says student gets the student menu no
+ * matter what reaches this function.
+ */
+export function roleToAdopt(
+  roleParam: string | null | undefined,
+  sessionRole: string | null | undefined,
+): Role | null {
+  if (roleParam) return null;
+  return isRole(sessionRole) ? sessionRole : null;
 }
