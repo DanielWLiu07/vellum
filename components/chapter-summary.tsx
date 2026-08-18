@@ -31,14 +31,25 @@ export function ChapterSummary() {
   // and loading false, so dropping it made an outage render as "0 members" and
   // "your advisor hasn't opened Vitals yet" — a fetch failure stated as a fact
   // about the student's chapter, on the page they land on.
-  const { roster, loading, error } = useRoster();
+  const { roster, scope, loading, error } = useRoster();
+
+  // The roster's scope belongs to the VIEWER; this card is about ONE chapter.
+  // For a student or trainer those already coincide, but an admin's roster is
+  // every member Vitals knows (scope "all") — so the raw array under a heading
+  // reading "Your chapter" announced 17 people drawn from four different
+  // chapters as though they were all in this one, and listed another chapter's
+  // trainer as this chapter's lead. Narrow to the chapter being named.
+  const here = useMemo(
+    () => (me?.chapter ? roster.filter((m) => m.chapter === me.chapter) : roster),
+    [roster, me],
+  );
 
   const leads = useMemo(
     () =>
       LEAD_ROLES.flatMap((role) =>
-        roster.filter((m) => m.role === role).map((m) => ({ ...m, role })),
+        here.filter((m) => m.role === role).map((m) => ({ ...m, role })),
       ),
-    [roster],
+    [here],
   );
 
   const chapterLabel = me?.chapterName || me?.chapter || "";
@@ -75,10 +86,19 @@ export function ChapterSummary() {
             "nobody". */}
         {!loading && !error && (
           <span className="chapter-members">
-            {roster.length} {roster.length === 1 ? "member" : "members"} here
+            {here.length} {here.length === 1 ? "member" : "members"} here
           </span>
         )}
       </div>
+
+      {/* An admin reads every chapter, so say which one this card is counting —
+          otherwise the narrowed number looks like the platform is smaller than
+          it is, which is the opposite error but just as misleading. */}
+      {!loading && !error && scope === "all" && (
+        <p className="chapter-note">
+          Your own chapter. Users &amp; roles lists every member in Vitals.
+        </p>
+      )}
 
       {!loading && error && (
         <p className="chapter-note">
