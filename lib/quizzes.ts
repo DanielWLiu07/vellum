@@ -75,6 +75,42 @@ function usableChoice(c: QuizChoice): boolean {
 export interface ExamSettings {
   /** Countdown length in seconds; the runner auto-submits at zero. */
   timeLimitSec: number;
+  /**
+   * Scheduled sitting window, epoch ms, both optional and independent — an exam
+   * can open with no close, close with no open, or neither (always available,
+   * which is what every exam was before this).
+   *
+   * The window is about WHEN the exam may be sat; `timeLimitSec` is about how
+   * long one sitting lasts. They are unrelated: a 30-minute exam open for a
+   * week is normal.
+   *
+   * These are ENFORCED SERVER-SIDE at both the take and the grade boundary, not
+   * merely used to grey out a button. A schedule that only hides the Start
+   * button is not a schedule — a member who left a tab open, or who calls the
+   * API directly, would sit and submit whenever they liked.
+   */
+  opensAt?: number;
+  closesAt?: number;
+}
+
+/** Whether a scheduled exam may be sat right now. No window = always "open". */
+export type ExamWindowState = "upcoming" | "open" | "closed";
+
+/**
+ * Pure, and takes `now` rather than reading the clock, for two reasons: the
+ * React Compiler treats `Date.now()` during a client render as a purity
+ * violation (§12.8), and the answer must come from the SERVER's clock anyway —
+ * a member whose system clock is wrong must not see a different verdict from
+ * the one the grade route is about to enforce.
+ */
+export function examWindowState(
+  exam: { opensAt?: number; closesAt?: number } | undefined,
+  now: number,
+): ExamWindowState {
+  if (!exam) return "open";
+  if (typeof exam.opensAt === "number" && now < exam.opensAt) return "upcoming";
+  if (typeof exam.closesAt === "number" && now > exam.closesAt) return "closed";
+  return "open";
 }
 
 /** Clamp bounds for a time limit: 30s to 4 hours. */
@@ -109,6 +145,23 @@ export interface QuizMeta {
   people: PersonShare[];
   /** True when this quiz is a timed, locked-down exam. */
   isExam: boolean;
+  /**
+   * The exam's countdown length, present only when `isExam`. Carried on the
+   * meta so a list can say "30 min" without fetching each quiz in turn — the
+   * Examinations section shows it before you commit to sitting one, which is
+   * the point at which it matters. It leaks nothing: the runner already sends
+   * the same number to the taker (see getQuizForTaker).
+   */
+  examTimeLimitSec?: number;
+  /** Scheduled sitting window (epoch ms), present only when set. */
+  examOpensAt?: number;
+  examClosesAt?: number;
+  /**
+   * Resolved against the SERVER clock at read time. Absent on a non-exam and on
+   * an exam with no window. The client renders this rather than recomputing,
+   * so what a card says and what the grade route will do cannot disagree.
+   */
+  examWindow?: ExamWindowState;
 }
 
 /** A question with the answer stripped, for sending to a quiz-taker. */
@@ -144,13 +197,34 @@ if (!store.get("sample-quiz")?.owner) {
 
 const clamp = (s: string, n: number) => s.trim().slice(0, n);
 
+/** A scheduled boundary is epoch ms; anything else is dropped rather than stored. */
+function cleanStamp(raw: unknown): number | undefined {
+  if (!Number.isFinite(raw)) return undefined;
+  const n = Math.round(raw as number);
+  // Positive and this side of the year-10000 problem. A zero/negative stamp is
+  // almost always an empty form field coerced to a number, and storing it would
+  // read as "opened at the epoch" — i.e. silently unscheduled.
+  return n > 0 && n < 253_402_300_800_000 ? n : undefined;
+}
+
 /** Normalize raw exam settings; null means "not an exam" (practice mode). */
 function cleanExam(raw: unknown): ExamSettings | null {
   if (!raw || typeof raw !== "object") return null;
   const sec = (raw as { timeLimitSec?: unknown }).timeLimitSec;
   if (!Number.isFinite(sec)) return null;
   const clamped = Math.min(EXAM_MAX_SEC, Math.max(EXAM_MIN_SEC, Math.round(sec as number)));
-  return { timeLimitSec: clamped };
+  const opensAt = cleanStamp((raw as { opensAt?: unknown }).opensAt);
+  const closesAt = cleanStamp((raw as { closesAt?: unknown }).closesAt);
+  // A close at or before the open is not a narrow window, it is an exam nobody
+  // can ever sit. Drop the close rather than storing a permanently-shut exam:
+  // the open date was the deliberate half, and a refusal here would have to be
+  // surfaced through an autosave that has nowhere to put it.
+  const usableClose = closesAt !== undefined && (opensAt === undefined || closesAt > opensAt) ? closesAt : undefined;
+  return {
+    timeLimitSec: clamped,
+    ...(opensAt !== undefined ? { opensAt } : {}),
+    ...(usableClose !== undefined ? { closesAt: usableClose } : {}),
+  };
 }
 
 /** True when a quiz is a timed, locked-down exam. */
@@ -216,6 +290,9 @@ export function listQuizzes(): QuizMeta[] {
         chapter: s.chapter,
         people: s.people,
         isExam: isExam(s),
+        ...(s.exam ? { examTimeLimitSec: s.exam.timeLimitSec } : {}),
+        ...(s.exam?.opensAt !== undefined ? { examOpensAt: s.exam.opensAt } : {}),
+        ...(s.exam?.closesAt !== undefined ? { examClosesAt: s.exam.closesAt } : {}),
       };
     });
 }

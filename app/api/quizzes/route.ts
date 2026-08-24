@@ -5,7 +5,7 @@ import { recordAudit } from "@/lib/audit";
 import { flaggedReason, moderateText } from "@/lib/moderation";
 import { enqueue } from "@/lib/moderation-queue";
 import { resolvePublish } from "@/lib/publish";
-import { type QuizQuestion, coerceChoice, createQuiz, listQuizzes } from "@/lib/quizzes";
+import { type QuizQuestion, coerceChoice, createQuiz, examWindowState, listQuizzes } from "@/lib/quizzes";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { getViewer } from "@/lib/profile";
 import { setShare } from "@/lib/resource-share";
@@ -26,7 +26,18 @@ export async function GET(req: NextRequest) {
   if (off) return off;
   // Scoped to what the viewer may see, like /api/docs — private quizzes and
   // other-chapter quizzes are not leaked into the shared list.
-  const quizzes = listQuizzes().filter((q) => canView(q, getViewer()));
+  // The sitting window is resolved HERE, against the server clock, and shipped
+  // as a verdict rather than as two timestamps for the browser to compare. A
+  // member with a skewed clock would otherwise see a Start button that the
+  // grade route then refuses — the schedule has to have one authority.
+  const now = Date.now();
+  const quizzes = listQuizzes()
+    .filter((q) => canView(q, getViewer()))
+    .map((q) =>
+      q.isExam && (q.examOpensAt !== undefined || q.examClosesAt !== undefined)
+        ? { ...q, examWindow: examWindowState({ opensAt: q.examOpensAt, closesAt: q.examClosesAt }, now) }
+        : q,
+    );
   return NextResponse.json({ quizzes }, { headers: { "Cache-Control": "no-store" } });
 }
 

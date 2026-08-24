@@ -7,6 +7,7 @@ import type { QuizMeta } from "@/lib/quizzes";
 import { withBack } from "@/lib/return-to";
 import { canEdit, canManageSharing } from "@/lib/visibility";
 
+import { AssignToPeople } from "./assign-to-people";
 import { canAssign, useMe } from "./use-assignments";
 import { useViewer } from "./use-viewer";
 
@@ -18,10 +19,8 @@ const VIS_LABEL = { public: "Public", chapter: "Chapter", private: "Private" } a
 
 export function QuizzesView() {
   const viewer = useViewer();
-  const me = useMe();
-  // Presentation only — /api/quizzes/[id]/attempts re-decides against the
-  // signed session and filters the rows, so this can never widen anything.
-  const isStaff = canAssign(me?.role);
+  // Presentation-only mirror of the assign gate; the route re-decides.
+  const mayAssign = canAssign(useMe()?.role);
   // Everything this list opens carries the way back to it (role + section
   // included), so finishing a quiz returns here instead of the dashboard's
   // default landing section.
@@ -31,6 +30,7 @@ export function QuizzesView() {
   const [loadError, setLoadError] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [share, setShare] = React.useState<ShareTarget | null>(null);
+  const [assigning, setAssigning] = React.useState<QuizMeta | null>(null);
   const [flash, setFlashMsg] = React.useState<string | null>(null);
   const flashTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Transient status line that clears itself (review finding: banners piled up).
@@ -87,6 +87,13 @@ export function QuizzesView() {
     setBusyId(null);
   }
 
+  // Practice self-tests only. Timed exams have their own section now — listing
+  // them here too would put a countdown that auto-submits and can void your
+  // attempt one indistinguishable tile away from a self-test, which is the
+  // confusion Examinations exists to end. Narrowed by KIND; /api/quizzes has
+  // already decided what this viewer may see.
+  const practice = quizzes.filter((q) => !q.isExam);
+
   return (
     <section className="role-section">
       <div className="section-head">
@@ -94,8 +101,9 @@ export function QuizzesView() {
         <Link className="cta" href={withBack("/upload?type=quiz", backHref)}>+ Create quiz</Link>
       </div>
       <p className="dash-sub" style={{ marginTop: -4, marginBottom: 12 }}>
-        Self-test quizzes with Google-Docs-style sharing: copy anything you can see, edit
-        what you own, share with specific people. Graded FLC exams live in the main HOSA platform.
+        Untimed practice self-tests, with Google-Docs-style sharing: copy anything you can
+        see, edit what you own, share with specific people. Timed sittings are under
+        Examinations. Graded FLC exams live in the main HOSA platform.
       </p>
       {flash && <p className="dash-sub" role="status" style={{ marginBottom: 12 }}>{flash}</p>}
       {loading ? (
@@ -104,11 +112,18 @@ export function QuizzesView() {
         <div className="empty-state">
           Couldn&apos;t load your quizzes. <button type="button" className="btn" onClick={() => void load()}>Retry</button>
         </div>
-      ) : quizzes.length === 0 ? (
-        <div className="empty-state">No quizzes yet - create the first one.</div>
+      ) : practice.length === 0 ? (
+        // Distinguish "you have written none" from "the ones you have are all
+        // exams, and they moved" — otherwise a member who set up three exams
+        // opens this page to a blank slate that reads as data loss.
+        <div className="empty-state">
+          {quizzes.length === 0
+            ? "No quizzes yet - create the first one."
+            : "No practice quizzes. Your timed exams are under Examinations."}
+        </div>
       ) : (
         <div className="tile-grid">
-          {quizzes.map((q) => {
+          {practice.map((q) => {
             const editable = q.id !== "sample-quiz" && canEdit(q, viewer);
             const canShare = q.id !== "sample-quiz" && canManageSharing(q, viewer);
             const mine = q.owner === viewer.owner;
@@ -128,7 +143,6 @@ export function QuizzesView() {
                 <div className="tile-info">
                   <p className="tile-title">{q.title}</p>
                   <p className="tile-sub">
-                    {q.isExam && <span className="exam-badge" style={{ marginRight: 6 }}>Exam</span>}
                     {q.questionCount} question{q.questionCount === 1 ? "" : "s"}
                     {" · "}
                     {q.owner === "system" ? "HOSA sample" : mine ? "Yours" : `By ${q.owner}`}
@@ -138,13 +152,12 @@ export function QuizzesView() {
                 <div className="tile-actions">
                   <Link className="btn primary" href={withBack(`/quizzes/${q.id}`, backHref)}>Take</Link>
                   {editable && <Link className="btn" href={withBack(`/quizzes/${q.id}/edit`, backHref)}>Edit</Link>}
-                  {/* Attempts used to be owner-only, which meant a trainer had
-                      no way in on HOSA-authored exams — the ones their students
-                      actually sit. Chapter staff get the link too; the route
-                      then filters to their own chapter's takers, so following
-                      it on someone else's quiz shows their members and nobody
-                      else's. */}
-                  {(mine || isStaff) && q.isExam && <Link className="btn" href={withBack(`/quizzes/${q.id}/attempts`, backHref)}>Attempts</Link>}
+                  {/* No Attempts link here any more. Practice quizzes record
+                      nothing — only exams create attempts — so on this list it
+                      was permanently dead. It moved to the exam cards in
+                      ExaminationsView, where there is something to review, and
+                      it keeps the chapter-staff reach it was given there. */}
+                  {mayAssign && <button type="button" className="btn" onClick={() => setAssigning(q)}>Assign...</button>}
                   <button type="button" className="btn" disabled={busyId === q.id} onClick={() => copy(q)}>Make a copy</button>
                   {canShare && (
                     <button
@@ -169,6 +182,13 @@ export function QuizzesView() {
           target={share}
           onClose={() => setShare(null)}
           onSaved={(m) => { setShare(null); setFlash(m); void load(); }}
+        />
+      )}
+      {assigning && (
+        <AssignToPeople
+          resource={{ kind: "quiz", id: assigning.id, title: assigning.title }}
+          onClose={() => setAssigning(null)}
+          notify={setFlash}
         />
       )}
     </section>

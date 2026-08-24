@@ -5,7 +5,7 @@ import { recordAudit } from "@/lib/audit";
 import { flaggedReason, moderateText } from "@/lib/moderation";
 import { deleteQueueFor, describeOpenReview, enqueue, isQuarantined } from "@/lib/moderation-queue";
 import { resolvePublish } from "@/lib/publish";
-import { type QuizQuestion, coerceChoice, deleteQuiz, getQuiz, getQuizForTaker, updateQuiz } from "@/lib/quizzes";
+import { type QuizQuestion, coerceChoice, deleteQuiz, examWindowState, getQuiz, getQuizForTaker, updateQuiz } from "@/lib/quizzes";
 import { deleteShare, setShare } from "@/lib/resource-share";
 import { deleteFavoritesFor } from "@/lib/favorites";
 import { getViewer } from "@/lib/profile";
@@ -36,6 +36,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (req.nextUrl.searchParams.get("edit") === "1") {
     if (!editable) return NextResponse.json({ error: "forbidden" }, { status: 403 });
     return NextResponse.json({ quiz: scoped, canEdit: true }, { headers: { "Cache-Control": "no-store" } });
+  }
+  // A scheduled exam is not fetchable outside its window: the questions ARE the
+  // exam, so handing them over early is handing over the paper early. Whoever
+  // may edit it is exempt — they need to check their own exam before it opens,
+  // and they can read the questions in the editor regardless.
+  const window = examWindowState(scoped.exam, Date.now());
+  if (window !== "open" && !editable) {
+    return NextResponse.json(
+      {
+        error: window === "upcoming" ? "exam_not_open" : "exam_closed",
+        ...(scoped.exam?.opensAt !== undefined ? { opensAt: scoped.exam.opensAt } : {}),
+        ...(scoped.exam?.closesAt !== undefined ? { closesAt: scoped.exam.closesAt } : {}),
+      },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
   }
   const quiz = getQuizForTaker(id)!;
   return NextResponse.json({ quiz, canEdit: editable }, { headers: { "Cache-Control": "no-store" } });

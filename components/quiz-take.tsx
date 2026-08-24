@@ -37,7 +37,10 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
 }) {
   const backLabel = returnLabel(backHref);
   const [quiz, setQuiz] = React.useState<TakerQuiz | null>(null);
-  const [err, setErr] = React.useState(false);
+  // Holds the REASON, not just the fact. A scheduled exam that hasn't opened
+  // yet is not a missing quiz, and telling its taker "Quiz not found." sends
+  // them looking for a broken link instead of back on the day it opens.
+  const [err, setErr] = React.useState<string | null>(null);
   const [answers, setAnswers] = React.useState<number[]>([]);
   const [result, setResult] = React.useState<Result | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -68,7 +71,21 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
       const res = await fetch(`/api/quizzes/${quizId}`, { cache: "no-store" }).catch(() => null);
       if (cancelled) return;
       if (!res || !res.ok) {
-        setErr(true);
+        const j = res ? await res.json().catch(() => null) : null;
+        if (cancelled) return;
+        const when = (ms: unknown) =>
+          Number.isFinite(ms)
+            ? new Date(ms as number).toLocaleString(undefined, {
+                weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit",
+              })
+            : null;
+        setErr(
+          j?.error === "exam_not_open"
+            ? `This exam hasn't opened yet.${when(j.opensAt) ? ` It opens ${when(j.opensAt)}.` : ""}`
+            : j?.error === "exam_closed"
+              ? `This exam has closed.${when(j.closesAt) ? ` It closed ${when(j.closesAt)}.` : ""} Ask whoever set it if you need a re-sit.`
+              : "Quiz not found.",
+        );
         return;
       }
       const q = (await res.json()).quiz as TakerQuiz;
@@ -198,7 +215,7 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
     setSheetOpen(false);
   }
 
-  if (err) return <div className="upload-card"><p className="dash-sub">Quiz not found.</p><Link className="btn" href={backHref}>← {backLabel}</Link></div>;
+  if (err) return <div className="upload-card"><p className="dash-sub">{err}</p><Link className="btn" href={backHref}>← {backLabel}</Link></div>;
   if (!quiz) return <div className="upload-card"><p className="dash-sub">Loading...</p></div>;
 
   // Reporting is a review-time action, not an attempt-time one.

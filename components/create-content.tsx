@@ -19,14 +19,21 @@ const RETURN_BY_TYPE: Record<ContentType, string> = {
 
 export function CreateContent({ backHref }: { backHref?: string | null }) {
   const [type, setType] = React.useState<ContentType>("document");
+  // ?exam=1 additionally starts the quiz form in exam mode — how Examinations'
+  // "+ Create exam" differs from Quizzes' "+ Create quiz". Read here rather
+  // than in the editor so the URL contract lives with the other one.
+  const [examDefault, setExamDefault] = React.useState(false);
 
   // Allow ?type=flashcards|quiz to preselect the tab (e.g. from the dashboard).
   React.useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get("type");
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("type");
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (t === "flashcards" || t === "document" || t === "quiz") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setType(t);
     }
+    if (params.get("exam") === "1") setExamDefault(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   return (
@@ -65,7 +72,7 @@ export function CreateContent({ backHref }: { backHref?: string | null }) {
         ? <UploadForm backHref={backHref ?? RETURN_BY_TYPE.document} />
         : type === "flashcards"
           ? <DeckEditor backHref={backHref ?? RETURN_BY_TYPE.flashcards} />
-          : <QuizEditor backHref={backHref ?? RETURN_BY_TYPE.quiz} />}
+          : <QuizEditor backHref={backHref ?? RETURN_BY_TYPE.quiz} examDefault={examDefault} />}
     </div>
   );
 }
