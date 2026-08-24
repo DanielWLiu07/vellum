@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AUTO_VOID_THRESHOLD,
+  FLAG_EPISODE_MS,
   REMOVED_QUIZ_TITLE,
   __resetAttempts,
   changeLabel,
@@ -342,5 +343,94 @@ describe("void / unvoid", () => {
   it("returns undefined for an unknown attempt", () => {
     expect(voidAttempt("nope", "x")).toBeUndefined();
     expect(unvoidAttempt("nope")).toBeUndefined();
+  });
+});
+
+// Auto-void decides whether a member's exam counts, off telemetry the browser
+// volunteers. It has to be wrong in the taker's favour rather than against
+// them, so what one act produces - and what it does NOT produce - is pinned.
+describe("seriousFlagCount - one act is one departure", () => {
+  /** The flags a single tab switch really fires, milliseconds apart. */
+  const tabSwitchAt = (t: number): IntegrityFlag[] => [
+    { kind: "hidden", at: t },
+    { kind: "blur", at: t + 4 },
+    { kind: "fullscreen-exit", at: t + 9 },
+  ];
+
+  it("counts one tab switch once, though it fires three listeners", () => {
+    // The bug this pins: visibilitychange, blur and fullscreenchange all fire
+    // for the same act, so a first tab switch scored 3 of the 3 needed to void
+    // and zeroed students who had done one thing, once.
+    expect(seriousFlagCount(tabSwitchAt(12_000))).toBe(1);
+    const a = recordAttempt({ ...base, flags: tabSwitchAt(12_000) });
+    expect(a.voided).toBe(false);
+    // Coalescing changes the COUNT, never the evidence - the reviewer still
+    // reads every event that was reported.
+    expect(a.flags).toHaveLength(3);
+  });
+
+  it("still auto-voids three separate departures", () => {
+    // Cheating must not get cheaper: three real absences void exactly as before.
+    const flags = [0, 30_000, 60_000].flatMap(tabSwitchAt);
+    expect(seriousFlagCount(flags)).toBe(AUTO_VOID_THRESHOLD);
+    const a = recordAttempt({ ...base, flags });
+    expect(a.voided).toBe(true);
+    expect(a.voidReason).toMatch(/Auto-voided/);
+    expect(a.voidReason).toContain("3");
+  });
+
+  it("does not void two departures, however many listeners each tripped", () => {
+    const a = recordAttempt({ ...base, flags: [0, 30_000].flatMap(tabSwitchAt) });
+    expect(a.voided).toBe(false);
+  });
+
+  it("measures the window from the episode's start, so a trickle cannot chain", () => {
+    // Anchored to the PREVIOUS flag instead, events spaced just under the
+    // window would coalesce forever and a taker could stay away indefinitely
+    // for the price of one episode.
+    const step = FLAG_EPISODE_MS - 100;
+    const flags: IntegrityFlag[] = Array.from({ length: 6 }, (_, i) => ({ kind: "blur", at: i * step }));
+    expect(seriousFlagCount(flags)).toBe(3);
+  });
+
+  it("counts the same however the flags are ordered", () => {
+    const flags: IntegrityFlag[] = [
+      { kind: "blur", at: 60_000 },
+      { kind: "hidden", at: 0 },
+      { kind: "hidden", at: 30_000 },
+    ];
+    expect(seriousFlagCount(flags)).toBe(3);
+    // ...and the caller's array is not reordered underneath them.
+    expect(flags[0].at).toBe(60_000);
+  });
+
+  it("ignores copy/paste/right-click however tightly they cluster", () => {
+    const flags: IntegrityFlag[] = [
+      { kind: "copy", at: 1 },
+      { kind: "paste", at: 2 },
+      { kind: "contextmenu", at: 3 },
+    ];
+    expect(seriousFlagCount(flags)).toBe(0);
+  });
+});
+
+// Eviction used to run over the whole quiz, oldest first, which made "submit in
+// a loop" a way to delete OTHER members' exam records.
+describe("attempt eviction is scoped to one taker", () => {
+  it("lets a flooder evict only their own attempts", () => {
+    const victim = recordAttempt({ ...base, taker: "student_2", flags: [] });
+    for (let i = 0; i < 260; i++) recordAttempt({ ...base, taker: "flooder", flags: [] });
+
+    expect(getAttempt(victim.id)).toBeDefined();
+    expect(listAttemptsByTaker("student_2")).toHaveLength(1);
+    // The flooder is capped, so the store is still bounded.
+    expect(listAttemptsByTaker("flooder").length).toBeLessThanOrEqual(200);
+  });
+
+  it("keeps every taker on a busy quiz, not just the most recent ones", () => {
+    const first = recordAttempt({ ...base, taker: "student_1", flags: [] });
+    for (let i = 0; i < 250; i++) recordAttempt({ ...base, taker: `other_${i}`, flags: [] });
+    expect(getAttempt(first.id)).toBeDefined();
+    expect(listAttempts("q1").length).toBeGreaterThan(200);
   });
 });

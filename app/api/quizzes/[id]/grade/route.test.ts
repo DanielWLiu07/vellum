@@ -8,6 +8,7 @@ import { POST } from "./route";
 import { createQuiz, deleteQuiz } from "@/lib/quizzes";
 import { __resetAttempts, listAttempts } from "@/lib/quiz-attempts";
 import { __resetProfile } from "@/lib/profile";
+import { __resetRateLimit } from "@/lib/rate-limit";
 
 const call = (id: string, body: unknown) =>
   POST(
@@ -24,6 +25,9 @@ beforeEach(() => {
   process.env.VELLUM_DEMO_MODE = "1";
   __resetProfile();
   __resetAttempts();
+  // Counters are process-global and keyed per IP; every test here shares the
+  // one "unknown" IP, so without this the file's own calls exhaust the window.
+  __resetRateLimit();
 });
 afterEach(() => {
   for (const id of ids) deleteQuiz(id);
@@ -86,5 +90,44 @@ describe("POST grade — exam mode", () => {
     ids.push(q.id);
     await call(q.id, { answers: [1, 0], startedAt: Date.now() - 5_000, autoSubmitted: true, flags: [] });
     expect(listAttempts(q.id)[0].autoSubmitted).toBe(true);
+  });
+});
+
+// Grading persists a row in exam mode, so it is a write like any other and gets
+// the same limiter. It is also what made eviction abusable: without a ceiling
+// on submissions, a member could submit in a loop until the cap pushed records
+// out (see lib/quiz-attempts). The per-taker cap fixed the deletion; this stops
+// the loop being free.
+describe("POST grade — rate limiting", () => {
+  const flood = async (id: string, n: number) => {
+    let last: Response | undefined;
+    for (let i = 0; i < n; i++) last = await call(id, { answers: [1, 0] });
+    return last!;
+  };
+
+  it("429s once a caller submits far more than a member ever would", async () => {
+    const q = createQuiz("Exam", QS, "you", { timeLimitSec: 600 });
+    ids.push(q.id);
+    const res = await flood(q.id, 40);
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toBe("rate_limited");
+    expect(res.headers.get("Retry-After")).toBeTruthy();
+  });
+
+  it("leaves an ordinary run of attempts alone", async () => {
+    const q = createQuiz("Exam", QS, "you", { timeLimitSec: 600 });
+    ids.push(q.id);
+    // A re-sit, a practice pass, a reload - nowhere near the ceiling.
+    for (let i = 0; i < 5; i++) {
+      expect((await call(q.id, { answers: [1, 0] })).status).toBe(200);
+    }
+  });
+
+  it("bounds how many attempts a flood can persist", async () => {
+    const q = createQuiz("Exam", QS, "you", { timeLimitSec: 600 });
+    ids.push(q.id);
+    await flood(q.id, 60);
+    // Whatever got through is capped by the limiter, not by evicting records.
+    expect(listAttempts(q.id).length).toBeLessThanOrEqual(30);
   });
 });

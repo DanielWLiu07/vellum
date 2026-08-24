@@ -59,11 +59,35 @@ export interface QuizAttempt {
 const VALID_KINDS: readonly IntegrityKind[] = ["hidden", "blur", "fullscreen-exit", "copy", "paste", "contextmenu"];
 /** Flags that suggest the taker left the exam surface (vs. an incidental copy). */
 const SERIOUS_KINDS: readonly IntegrityKind[] = ["hidden", "blur", "fullscreen-exit"];
-/** Auto-void once this many "serious" (left-the-surface) flags pile up. */
+/** Auto-void once this many "serious" (left-the-surface) EPISODES pile up. */
 export const AUTO_VOID_THRESHOLD = 3;
+/**
+ * Serious flags this close together are one departure, not several.
+ *
+ * The runner listens for `visibilitychange` and window `blur` separately, but a
+ * single tab switch fires BOTH within a few milliseconds - and if the taker was
+ * in fullscreen it can fire `fullscreen-exit` alongside them. Counted raw, one
+ * ordinary tab switch is 2-3 of the 3 flags needed to auto-void, so the
+ * threshold that reads as "three strikes" was voiding real students on their
+ * first. Coalescing by time collapses the co-fired events back into the one act
+ * the taker actually performed.
+ *
+ * 500ms is well clear of the few-ms gap between co-fired browser events, and
+ * well under the gap between two deliberate departures.
+ */
+export const FLAG_EPISODE_MS = 500;
 const MAX_FLAGS = 500;
-/** Keep at most this many attempts per quiz (bounds the store). */
-const MAX_ATTEMPTS_PER_QUIZ = 200;
+/**
+ * Keep at most this many attempts per quiz PER TAKER (bounds the store).
+ *
+ * Per taker, not per quiz: eviction drops the oldest first, so a quiz-wide cap
+ * meant one member submitting attempts in a loop evicted every OTHER member's
+ * records on that exam - deleting the evidence of their own voided attempt, and
+ * everyone else's results with it. A flooder can now only evict their own.
+ * Total rows per quiz are bounded by takers x this cap, with the rate limit on
+ * /api/quizzes/[id]/grade bounding how fast any of it can grow.
+ */
+const MAX_ATTEMPTS_PER_TAKER = 200;
 /** Matches the quiz title cap in lib/quizzes, so a snapshot is never truncated harder. */
 const TITLE_MAX = 120;
 /** Shown when a quiz is gone and the attempt carries no snapshot to fall back on. */
@@ -73,8 +97,12 @@ const g = globalThis as unknown as { __vitalsAttempts?: Map<string, QuizAttempt>
 const store: Map<string, QuizAttempt> = (g.__vitalsAttempts ??= new Map());
 const { persist } = persistMap("quiz-attempts", store);
 
-/** Keep only valid, well-formed flags; cap the count so one attempt can't bloat the store. */
-function cleanFlags(raw: unknown): IntegrityFlag[] {
+/**
+ * Keep only valid, well-formed flags; cap the count so one attempt can't bloat
+ * the store. Exported because lib/exam-sessions re-sanitises the same telemetry
+ * on every heartbeat - one definition of "a believable flag", not two.
+ */
+export function cleanFlags(raw: unknown): IntegrityFlag[] {
   if (!Array.isArray(raw)) return [];
   const out: IntegrityFlag[] = [];
   for (const f of raw) {
@@ -88,9 +116,33 @@ function cleanFlags(raw: unknown): IntegrityFlag[] {
   return out.sort((a, b) => a.at - b.at);
 }
 
-/** Count of "serious" flags - the ones that decide auto-void. */
+/**
+ * How many times the taker left the exam surface - the count that decides
+ * auto-void.
+ *
+ * Counts EPISODES, not raw flags: serious flags within FLAG_EPISODE_MS of the
+ * one that opened an episode are the same departure reported by two or three
+ * listeners (see FLAG_EPISODE_MS). The window is measured from the episode's
+ * START, not from the previous flag, so a steady trickle of events cannot chain
+ * into one endless episode that never counts a second time.
+ *
+ * Sorts a copy rather than trusting the caller: stored flags are always sorted
+ * (cleanFlags), but this is exported and a caller passing an unordered array
+ * should not silently get a different number.
+ */
 export function seriousFlagCount(flags: IntegrityFlag[]): number {
-  return flags.filter((f) => (SERIOUS_KINDS as readonly string[]).includes(f.kind)).length;
+  const serious = flags
+    .filter((f) => (SERIOUS_KINDS as readonly string[]).includes(f.kind))
+    .sort((a, b) => a.at - b.at);
+  let episodes = 0;
+  let openedAt = -Infinity;
+  for (const f of serious) {
+    if (f.at - openedAt > FLAG_EPISODE_MS) {
+      episodes += 1;
+      openedAt = f.at;
+    }
+  }
+  return episodes;
 }
 
 export interface RecordAttemptInput {
@@ -115,7 +167,8 @@ export function recordAttempt(input: RecordAttemptInput): QuizAttempt {
   const rawStart = Number.isFinite(input.startedAt) ? input.startedAt : submittedAt;
   const startedAt = Math.min(submittedAt, Math.max(submittedAt - (input.timeLimitSec + 60) * 1000, rawStart));
   const durationSec = Math.round((submittedAt - startedAt) / 1000);
-  const breached = seriousFlagCount(flags) >= AUTO_VOID_THRESHOLD;
+  const departures = seriousFlagCount(flags);
+  const breached = departures >= AUTO_VOID_THRESHOLD;
   const quizTitle = (input.quizTitle ?? "").trim().slice(0, TITLE_MAX);
   const attempt: QuizAttempt = {
     id: `at_${crypto.randomUUID()}`,
@@ -130,21 +183,28 @@ export function recordAttempt(input: RecordAttemptInput): QuizAttempt {
     autoSubmitted: input.autoSubmitted,
     flags,
     voided: breached,
-    ...(breached ? { voidReason: `Auto-voided: ${seriousFlagCount(flags)} integrity flags` } : {}),
+    ...(breached ? { voidReason: `Auto-voided: left the exam ${departures} times` } : {}),
     ...(quizTitle ? { quizTitle } : {}),
   };
   store.set(attempt.id, attempt);
-  evictBeyondCap(input.quizId);
+  evictBeyondCap(input.quizId, attempt.taker);
   if (isHydrated()) persist();
   return attempt;
 }
 
-/** Drop the oldest attempts for a quiz beyond the per-quiz cap. */
-function evictBeyondCap(quizId: string): void {
+/**
+ * Drop one taker's oldest attempts on a quiz beyond the cap.
+ *
+ * Scoped to (quiz, taker) rather than to the quiz: oldest-first eviction over
+ * the whole quiz let one member's attempts push out every other member's, so
+ * submitting in a loop was a way to delete other people's exam records - and
+ * one's own inconvenient ones. See MAX_ATTEMPTS_PER_TAKER.
+ */
+function evictBeyondCap(quizId: string, taker: string): void {
   const mine = [...store.values()]
-    .filter((a) => a.quizId === quizId)
+    .filter((a) => a.quizId === quizId && a.taker === taker)
     .sort((a, b) => a.submittedAt - b.submittedAt);
-  while (mine.length > MAX_ATTEMPTS_PER_QUIZ) {
+  while (mine.length > MAX_ATTEMPTS_PER_TAKER) {
     const old = mine.shift();
     if (old) store.delete(old.id);
   }
