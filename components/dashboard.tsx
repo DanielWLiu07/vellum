@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DOC_SORTS, matchesQuery, sortDocs, type DocSort } from "@/lib/resource-list";
 
 import { ActivityLog } from "./activity-log";
-import { AdminOverview, AdminUsers } from "./admin-console";
+import { AdminNotify, AdminOverview, AdminUsers } from "./admin-console";
 import { AdminSettings } from "./admin-settings";
 import { CardThumb } from "./card-thumb";
 import { FavoriteButton } from "./favorite-button";
@@ -1145,6 +1145,10 @@ function AdminOnly({ access, signedRole }: { access: "checking" | "denied"; sign
 function AdminView({ section, ...shared }: SharedProps & { section: string }) {
   if (section === "overview") return <AdminOverview documents={shared.docs.length} />;
   if (section === "users") return <AdminUsers />;
+  // AdminView only renders at all when access === "granted" (see the call
+  // site), and /api/notifications re-decides against the signed session, so
+  // previewing admin gets the form and then an honest refusal.
+  if (section === "notify") return <AdminNotify />;
   if (section === "content") return <DocManager {...shared} heading="All content" admin />;
   if (section === "moderation") return <ModerationView />;
   if (section === "access") {

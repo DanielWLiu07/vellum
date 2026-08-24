@@ -120,6 +120,10 @@ export const NAV: Record<Role, NavItem[]> = {
     TODO_LINK,
     { id: "overview", label: "Overview" },
     { id: "users", label: "Users & roles" },
+    // The send side of §13.1. Vitals had no way to tell a member anything;
+    // this is the human-initiated half, next to Users because it is the same
+    // question asked the other way round — who, and what about.
+    { id: "notify", label: "Send a notification" },
     // GET /api/assignments answers "all of them" for an admin, and until now
     // nothing asked it — the whole platform's assigned work had no reader.
     { id: "assigned", label: "Assigned work" },
