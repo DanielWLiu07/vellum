@@ -6,6 +6,8 @@ import * as React from "react";
 
 import { withBack } from "@/lib/return-to";
 
+import { AssignToPeople } from "./assign-to-people";
+import { canAssign, useMe } from "./use-assignments";
 import { useDashboardReturn } from "./use-return-to";
 
 type ModuleMeta = { id: string; title: string; summary?: string; sectionCount: number; subsectionCount: number; linkedCount: number; owner: string };
@@ -41,6 +43,14 @@ export function ModulesLobby({ admin }: { admin: boolean }) {
   // Kept apart from loadError: a refused CREATE must not blank out a module
   // list that loaded perfectly well.
   const [createError, setCreateError] = React.useState<string | null>(null);
+  // Which module is being handed out, if any. Resource-first assigning: the
+  // module is already chosen, so the modal only has to ask who.
+  const [assigning, setAssigning] = React.useState<ModuleMeta | null>(null);
+  const [flash, setFlash] = React.useState<string | null>(null);
+  // The SERVER's role, not the preview switcher's - a previewed trainer must
+  // not be shown an Assign button the API will then refuse.
+  const me = useMe();
+  const mayAssign = canAssign(me?.role);
   const router = useRouter();
 
   const load = React.useCallback(async () => {
@@ -111,6 +121,7 @@ export function ModulesLobby({ admin }: { admin: boolean }) {
       </p>
 
       {createError && <p className="upload-error" role="alert">{createError}</p>}
+      {flash && <p className="dash-sub" role="status" style={{ marginBottom: 12 }}>{flash}</p>}
 
       {loadError ? (
         <div className="empty-state">
@@ -146,11 +157,20 @@ export function ModulesLobby({ admin }: { admin: boolean }) {
                     {done > 0 && !complete ? "Continue" : complete ? "Review" : "Start"}
                   </Link>
                   {admin && m.id !== "sample-module" && <Link className="btn" href={withBack(`/modules/${m.id}/edit`, backHref)}>Edit</Link>}
+                  {mayAssign && <button type="button" className="btn" onClick={() => setAssigning(m)}>Assign...</button>}
                 </div>
               </div>
             );
           })}
         </div>
+      )}
+
+      {assigning && (
+        <AssignToPeople
+          resource={{ kind: "module", id: assigning.id, title: assigning.title }}
+          onClose={() => setAssigning(null)}
+          notify={setFlash}
+        />
       )}
     </section>
   );
