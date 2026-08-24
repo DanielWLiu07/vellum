@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 
+import { autosaveInit } from "@/lib/autosave-request";
 import { parseCards } from "@/lib/parse-cards";
 import { RETURN_TO, returnLabel, withBack } from "@/lib/return-to";
 import type { Visibility } from "@/lib/visibility";
@@ -55,13 +56,10 @@ export function DeckEditor({ editId, backHref = RETURN_TO.flashcards, selfHref }
     const ctrl = new AbortController();
     saveAbort.current = ctrl;
     try {
-      const res = await fetch(`/api/decks/${editId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, cards }),
-        signal: ctrl.signal,
-        keepalive: true,
-      });
+      const res = await fetch(
+        `/api/decks/${editId}`,
+        autosaveInit(JSON.stringify({ title, cards }), ctrl.signal),
+      );
       if (res.ok) { setError(null); return true; }
       const j = await res.json().catch(() => null);
       setError(

@@ -3,10 +3,13 @@
 import Link from "next/link";
 import * as React from "react";
 
+import { autosaveInit } from "@/lib/autosave-request";
 import { renderMarkdown } from "@/lib/markdown";
 import { RETURN_TO, returnLabel, withBack } from "@/lib/return-to";
 
+import { AssignToPeople } from "./assign-to-people";
 import { SlidesScroll } from "./slides-scroll";
+import { canAssign, useMe } from "./use-assignments";
 import { useAutosave, type SaveStatus } from "./use-autosave";
 
 /**
@@ -144,6 +147,13 @@ export function ModuleEditor({ moduleId, backHref = RETURN_TO.modules, selfHref 
   // parts swaps the stage straight away instead of waiting out the debounce.
   const [settled, setSettled] = React.useState<{ subId: string; links: Record<string, string> }>({ subId: "", links: {} });
   const saveAbort = React.useRef<AbortController | null>(null);
+  // Handing the module out from the page where it is authored: the resource is
+  // already chosen here, so the modal only has to ask who gets it.
+  const [assigning, setAssigning] = React.useState(false);
+  const [assignFlash, setAssignFlash] = React.useState<string | null>(null);
+  // The SERVER's role. Only an admin reaches this editor at all, but canAssign
+  // is the authority on who may hand work out and it is not the same predicate.
+  const me = useMe();
 
   const modeKey = "vitals-module-mode";
 
@@ -201,13 +211,10 @@ export function ModuleEditor({ moduleId, backHref = RETURN_TO.modules, selfHref 
     const ctrl = new AbortController();
     saveAbort.current = ctrl;
     try {
-      const res = await fetch(`/api/modules/${moduleId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, summary, sections: wire }),
-        signal: ctrl.signal,
-        keepalive: true,
-      });
+      const res = await fetch(
+        `/api/modules/${moduleId}`,
+        autosaveInit(JSON.stringify({ title, summary, sections: wire }), ctrl.signal),
+      );
       if (res.ok) { setError(null); setSavedDocs(pdfDocIds(sections)); return true; }
       const j = await res.json().catch(() => null);
       setError(
@@ -353,10 +360,19 @@ export function ModuleEditor({ moduleId, backHref = RETURN_TO.modules, selfHref 
 
   if (state === "loading") return <div className="upload-card"><p className="dash-sub">Loading the module...</p></div>;
   if (state === "denied") {
+    // Two different refusals wore one message. Signed in as an admin, opening a
+    // module that plainly exists and whose header offers "Play this module",
+    // being told it "doesn't exist, or you're not an admin" is simply false -
+    // the real reason is that the seeded sample is immutable.
+    const sampleModule = moduleId === "sample-module";
     return (
       <div className="upload-card">
         <h1 className="upload-h">Can&apos;t edit this module</h1>
-        <p className="dash-sub">It doesn&apos;t exist, or you&apos;re not an admin. Modules are authored by HOSA staff.</p>
+        <p className="dash-sub">
+          {sampleModule
+            ? "The sample module is read-only - it's the built-in example every deployment starts with. Make a new module, or copy this one's structure into it."
+            : "It doesn't exist, or you're not an admin. Modules are authored by HOSA staff."}
+        </p>
         <Link className="btn" href={backHref}>← {backLabel}</Link>
       </div>
     );
@@ -475,9 +491,21 @@ export function ModuleEditor({ moduleId, backHref = RETURN_TO.modules, selfHref 
 
         <div className="mod-edit-side-actions">
           <Link className="cta" href={withBack(`/modules/${moduleId}`, selfHref ?? backHref)}>Play it</Link>
+          {canAssign(me?.role) && (
+            <button type="button" className="btn" onClick={() => setAssigning(true)}>Assign to...</button>
+          )}
           <Link className="btn" href={backHref}>Done · {backLabel}</Link>
         </div>
+        {assignFlash && <p className="dash-sub" role="status" style={{ marginTop: 10 }}>{assignFlash}</p>}
       </aside>
+
+      {assigning && (
+        <AssignToPeople
+          resource={{ kind: "module", id: moduleId, title: title || "Untitled module" }}
+          onClose={() => setAssigning(false)}
+          notify={setAssignFlash}
+        />
+      )}
 
       <main className="module-stage">
         {error && <p className="upload-error" role="alert">{error}</p>}
@@ -724,10 +752,19 @@ function RowTools({
   );
 }
 
-/** The player's "nothing here yet" tile, with editor-facing wording. */
+/**
+ * The player's "nothing here yet" tile, with editor-facing wording and a
+ * fraction of the height.
+ *
+ * The player reserves a full 16:9 so the layout doesn't jump when the embed
+ * loads. An editor block that is empty has nothing arriving to reserve for, and
+ * a part with four unfilled blocks became ~2200px of dashed grey to scroll
+ * past - the authoring view punished you for adding the blocks you were about
+ * to fill in.
+ */
 function StageEmpty({ children }: { children: React.ReactNode }) {
   return (
-    <div className="module-embed-empty">
+    <div className="module-embed-empty is-compact">
       <p className="module-embed-empty-title">Nothing here yet</p>
       <p className="dash-sub">{children}</p>
     </div>

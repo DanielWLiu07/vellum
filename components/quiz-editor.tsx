@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 
+import { autosaveInit } from "@/lib/autosave-request";
 import { RETURN_TO, returnLabel, withBack } from "@/lib/return-to";
 import type { Visibility } from "@/lib/visibility";
 
@@ -19,6 +20,18 @@ const VISIBILITY_OPTIONS: { id: Visibility; label: string }[] = [
 type Choice = { text: string; imageId?: string };
 type Q = { prompt: string; choices: Choice[]; correctIndex: number; promptImageId?: string };
 
+/**
+ * Epoch ms -> the "YYYY-MM-DDTHH:mm" string <input type="datetime-local">
+ * requires, in LOCAL time. toISOString() would be UTC and would show the
+ * scheduler a time that is not the one they set.
+ */
+function toLocalInput(ms: unknown): string {
+  if (!Number.isFinite(ms)) return "";
+  const d = new Date(ms as number);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 const blankQ = (): Q => ({ prompt: "", choices: [{ text: "" }, { text: "" }], correctIndex: 0 });
 const usableChoice = (c: Choice) => Boolean(c.text.trim() || c.imageId);
 const ready = (q: Q) => (q.prompt.trim() || q.promptImageId) && q.choices.filter(usableChoice).length >= 2;
@@ -28,24 +41,61 @@ const ready = (q: Q) => (q.prompt.trim() || q.promptImageId) && q.choices.filter
  * loads the full quiz INCLUDING the answer key via `?edit=1`, which the server
  * only serves to the owner or a granted editor.
  */
-export function QuizEditor({ editId, backHref = RETURN_TO.quizzes, selfHref }: {
+export function QuizEditor({ editId, backHref = RETURN_TO.quizzes, selfHref, examDefault = false }: {
   editId?: string;
   /** Validated destination for "Done" and for the quiz this editor creates. */
   backHref?: string;
   /** This editor's own URL, handed to preview links so they come back here. */
   selfHref?: string;
+  /**
+   * Start with exam mode already on. The Examinations section's "+ Create exam"
+   * points here, and landing on a form with the exam toggle OFF made that
+   * button a promise the next screen broke — you would finish the flow holding
+   * a practice quiz. Create-mode only: in edit mode the quiz's own stored
+   * settings win, since the toggle then reflects what the quiz IS.
+   */
+  examDefault?: boolean;
 } = {}) {
   const backLabel = returnLabel(backHref);
   const [title, setTitle] = React.useState("");
   const [questions, setQuestions] = React.useState<Q[]>([blankQ()]);
   const [visibility, setVisibility] = React.useState<Visibility>("private");
   // Exam mode: timed, locked-down assessment (see ExamSettings server-side).
-  const [examOn, setExamOn] = React.useState(false);
+  // Seeded from examDefault for a fresh quiz; edit mode overwrites it below
+  // once the quiz loads, so an existing practice quiz can't be flipped by a URL.
+  const [examOn, setExamOn] = React.useState(editId ? false : examDefault);
   const [examMin, setExamMin] = React.useState(30);
+  // Scheduled sitting window, held as <input type="datetime-local"> strings
+  // ("" = unset). Kept as strings rather than numbers so an empty field stays
+  // empty instead of round-tripping through NaN and reappearing as the epoch.
+  const [opensAt, setOpensAt] = React.useState("");
+  const [closesAt, setClosesAt] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [editState, setEditState] = React.useState<"ready" | "loading" | "denied">(editId ? "loading" : "ready");
   const router = useRouter();
+
+  // datetime-local <-> epoch ms. The input speaks the BROWSER's local time with
+  // no zone, so it is parsed as local and stored as an absolute instant —
+  // otherwise an exam scheduled in Toronto opens at a different moment for a
+  // member whose machine is set elsewhere.
+  const toEpoch = (local: string): number | undefined => {
+    if (!local) return undefined;
+    const ms = new Date(local).getTime();
+    return Number.isFinite(ms) ? ms : undefined;
+  };
+  function examPayload() {
+    const opens = toEpoch(opensAt);
+    const closes = toEpoch(closesAt);
+    return {
+      timeLimitSec: examMin * 60,
+      ...(opens !== undefined ? { opensAt: opens } : {}),
+      ...(closes !== undefined ? { closesAt: closes } : {}),
+    };
+  }
+  // A close at or before the open is an exam nobody can sit. The server drops
+  // it; say so here rather than letting it be silently discarded on save.
+  const badWindow = Boolean(opensAt && closesAt && toEpoch(closesAt)! <= toEpoch(opensAt)!);
 
   // Edit mode is live: changes autosave, no save button. Saves title + the
   // usable questions (possibly empty) so title edits and deletions persist.
@@ -56,13 +106,13 @@ export function QuizEditor({ editId, backHref = RETURN_TO.quizzes, selfHref }: {
     const ctrl = new AbortController();
     saveAbort.current = ctrl;
     try {
-      const res = await fetch(`/api/quizzes/${editId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, questions: usable, exam: examOn ? { timeLimitSec: examMin * 60 } : null }),
-        signal: ctrl.signal,
-        keepalive: true,
-      });
+      const res = await fetch(
+        `/api/quizzes/${editId}`,
+        autosaveInit(
+          JSON.stringify({ title, questions: usable, exam: examOn ? examPayload() : null }),
+          ctrl.signal,
+        ),
+      );
       if (res.ok) { setError(null); return true; }
       const j = await res.json().catch(() => null);
       setError(
@@ -77,7 +127,7 @@ export function QuizEditor({ editId, backHref = RETURN_TO.quizzes, selfHref }: {
       return false;
     }
   }
-  const status = useAutosave(autosaveNow, JSON.stringify({ title, questions: questions.filter(ready), examOn, examMin }), {
+  const status = useAutosave(autosaveNow, JSON.stringify({ title, questions: questions.filter(ready), examOn, examMin, opensAt, closesAt }), {
     enabled: Boolean(editId) && editState === "ready",
   });
 
@@ -97,6 +147,8 @@ export function QuizEditor({ editId, backHref = RETURN_TO.quizzes, selfHref }: {
       if (j.quiz.exam && Number.isFinite(j.quiz.exam.timeLimitSec)) {
         setExamOn(true);
         setExamMin(Math.max(1, Math.round(j.quiz.exam.timeLimitSec / 60)));
+        setOpensAt(toLocalInput(j.quiz.exam.opensAt));
+        setClosesAt(toLocalInput(j.quiz.exam.closesAt));
       }
       const loaded = (j.quiz.questions as Q[]).map((q) => {
         const choices = (Array.isArray(q.choices) ? q.choices : []).map((c) =>
@@ -147,7 +199,11 @@ export function QuizEditor({ editId, backHref = RETURN_TO.quizzes, selfHref }: {
       const res = await fetch("/api/quizzes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, questions: [], visibility }),
+        // `exam` travels with the CREATE, not just the later autosave. Without
+        // it "+ Create exam" produced a practice quiz and the exam-ness had to
+        // be rediscovered and switched on inside the editor — the one step a
+        // member following that button has no reason to expect.
+        body: JSON.stringify({ title, questions: [], visibility, ...(examOn ? { exam: examPayload() } : {}) }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => null);
@@ -184,10 +240,58 @@ export function QuizEditor({ editId, backHref = RETURN_TO.quizzes, selfHref }: {
   if (!editId) {
     return (
       <form className="upload-card" onSubmit={create}>
-        <h1 className="upload-h">New quiz</h1>
-        <p className="dash-sub">Name it and choose who can see it. You&apos;ll add questions next.</p>
-        <label className="dash-field"><span>Quiz title</span>
+        {/* Arriving from Examinations' "+ Create exam", this whole screen has
+            to read as "you are making an exam" — same form, named for what it
+            is actually about to produce. Arriving from Quizzes it is unchanged. */}
+        <h1 className="upload-h">{examOn ? "New exam" : "New quiz"}</h1>
+        <p className="dash-sub">
+          {examOn
+            ? "Name it, set the clock, and choose who can see it. You'll add questions next."
+            : "Name it and choose who can see it. You'll add questions next."}
+        </p>
+        <label className="dash-field"><span>{examOn ? "Exam title" : "Quiz title"}</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Anatomy unit 2" maxLength={120} autoFocus /></label>
+        {examOn && (
+          <div className="exam-settings">
+            <label className="exam-time-field">
+              <span>Time limit</span>
+              <input
+                type="number"
+                min={1}
+                max={240}
+                value={examMin}
+                onChange={(e) => setExamMin(Math.max(1, Math.min(240, Number(e.target.value) || 1)))}
+              />
+              <span>minutes</span>
+            </label>
+            <p className="quiz-hint">
+              The clock auto-submits at zero and the answer key stays hidden before and after. Takers start in
+              fullscreen; leaving it or switching tabs is flagged, and repeated flags auto-void the attempt for your
+              review. Integrity is advisory (client-reported) - the fully proctored engine lives in the main HOSA
+              platform. You can turn exam mode off again in the editor.
+            </p>
+            <div className="exam-window">
+              <label className="exam-time-field">
+                <span>Opens</span>
+                <input type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} />
+              </label>
+              <label className="exam-time-field">
+                <span>Closes</span>
+                <input type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} />
+              </label>
+            </div>
+            <p className="quiz-hint">
+              Leave both blank and the exam is always available. The window is enforced on the server at both ends —
+              outside it the questions are not served and a submission is refused — so it schedules the sitting rather
+              than just hiding the button. You can always open your own exam early to check it.
+            </p>
+            {badWindow && (
+              <p className="upload-error" role="alert">
+                Closes is not after Opens, so nobody could ever sit this. The close date will be dropped.
+              </p>
+            )}
+          </div>
+        )}
         <label className="dash-field"><span>Who can see it</span>
           <select value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
             {VISIBILITY_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -241,6 +345,30 @@ export function QuizEditor({ editId, backHref = RETURN_TO.quizzes, selfHref }: {
             attempt for your review. Integrity is advisory (client-reported) - the fully proctored engine lives in the
             main HOSA platform.
           </p>
+        )}
+        {examOn && (
+          <>
+            <div className="exam-window">
+                <label className="exam-time-field">
+                  <span>Opens</span>
+                  <input type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} />
+                </label>
+                <label className="exam-time-field">
+                  <span>Closes</span>
+                  <input type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} />
+                </label>
+            </div>
+              <p className="quiz-hint">
+                Leave both blank and the exam is always available. The window is enforced on the server at both ends —
+                outside it the questions are not served and a submission is refused — so it schedules the sitting rather
+                than just hiding the button. You can always open your own exam early to check it.
+              </p>
+              {badWindow && (
+                <p className="upload-error" role="alert">
+                  Closes is not after Opens, so nobody could ever sit this. The close date will be dropped.
+                </p>
+              )}
+          </>
         )}
       </div>
 
