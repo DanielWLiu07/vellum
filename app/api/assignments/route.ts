@@ -9,7 +9,8 @@ import {
   listAssignmentsFor,
 } from "@/lib/assignments";
 import { recordAudit } from "@/lib/audit";
-import { notify } from "@/lib/notifications";
+import { dueRaises } from "@/lib/due-sweep";
+import { hasRaised, notify } from "@/lib/notifications";
 import { getProfile, getViewer } from "@/lib/profile";
 import { canAssign, getKnownUser, viewerRole } from "@/lib/users";
 
@@ -43,6 +44,44 @@ function assignmentHref(a: { kind: string; refId: string; parts?: { id: string }
 }
 
 /**
+ * Raise any due-date notices this member has earned but not yet been told.
+ *
+ * Vitals has no scheduler (see lib/due-sweep), so the sweep rides on the read:
+ * whenever someone loads their own work, we catch up on what should have fired.
+ *
+ * NO `actor`. Everywhere else, passing the actor is what stops a member being
+ * notified about their own action - but a deadline is not an action anybody
+ * took, and this runs while the member themselves is reading. Passing
+ * `actor: owner` here would make actor === to on every single call and
+ * lib/notifications would correctly drop all of them, so the feature would
+ * deliver precisely nothing. The absence is the point; do not "fix" it.
+ *
+ * Best-effort: a failure here must not take down the list the member asked
+ * for. They would lose a reminder, not their work.
+ */
+function sweepOwnDueDates(owner: string): void {
+  try {
+    const raises = dueRaises(listAssignmentsFor(owner), Date.now(), (key) => hasRaised(owner, key));
+    for (const r of raises) {
+      const a = r.assignment;
+      const soon = r.kind === "assignment.due_soon";
+      notify({
+        to: owner,
+        kind: r.kind,
+        title: soon ? `${a.title} is due soon` : `${a.title} is overdue`,
+        body: a.dueAt
+          ? `${soon ? "Due" : "Was due"} ${new Date(a.dueAt).toISOString().slice(0, 10)}. Assigned by ${a.assignedByName}.`
+          : undefined,
+        href: assignmentHref(a),
+        groupKey: r.groupKey,
+      });
+    }
+  } catch {
+    /* a missed reminder is not worth failing the request over */
+  }
+}
+
+/**
  * List assignments, scoped to what the caller is allowed to see:
  *   - student          -> their own, and only their own
  *   - trainer/advisor  -> every assignment in THEIR chapter
@@ -58,6 +97,10 @@ export async function GET(req: NextRequest) {
   const viewer = getViewer();
   const role = viewerRole();
   const assignee = (req.nextUrl.searchParams.get("assignee") ?? "").trim().slice(0, ID_MAX);
+
+  // Always the READER's own work, whatever scope they are about to be served -
+  // a trainer has deadlines too, and theirs are swept on the same read.
+  sweepOwnDueDates(viewer.owner);
 
   if (!canAssign(role)) {
     return NextResponse.json({ assignments: listAssignmentsFor(viewer.owner), scope: "self" }, noStore);

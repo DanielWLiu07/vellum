@@ -18,6 +18,14 @@
  *      assignment does not need to be told they ticked it. Doing this in the
  *      module means a new call site cannot forget it.
  *
+ *      The rule is about ACTIONS, so it only applies where there is an actor.
+ *      A deadline arriving is not something a person did - it is the clock -
+ *      and the member whose read happens to trigger a lazy sweep did not cause
+ *      it. Those calls correctly pass no actor (see lib/due-sweep and
+ *      sweepOwnDueDates in app/api/assignments): the sweep is self-scoped, so
+ *      passing the reader would make actor === to on every call and the whole
+ *      feature would deliver nothing. Do not "fix" that omission.
+ *
  *   2. COLLAPSE what is honestly one event. Five assignments handed out in one
  *      go is ONE thing that happened to the student, not five. Notifications
  *      sharing a `groupKey`, still unread, inside COLLAPSE_WINDOW_MS merge into
@@ -112,7 +120,11 @@ function cleanHref(raw: unknown): string | undefined {
 export interface NotifyInput {
   /** Recipient. */
   to: string;
-  /** Who caused it. A notification is never delivered to its own actor. */
+  /**
+   * Who caused it. A notification is never delivered to its own actor.
+   *
+   * Omit it when nothing did - a deadline passing has no actor. See rule 1.
+   */
   actor?: string;
   kind: NotificationKind;
   title: string;

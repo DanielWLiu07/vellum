@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { mintIdentityToken, verifyIdentityToken } from "./identity-token";
+import { SESSION_TTL_SECONDS } from "./auth";
 
 const SECRET = "shared-secret-at-least-16-chars";
 
@@ -134,5 +135,43 @@ describe("chapter identity vs chapter display name", () => {
       expect(r.identity.chapterName).toBeUndefined();
       expect(r.identity.chapterName || r.identity.chapter).toBe("c_1");
     }
+  });
+});
+
+// The invariant S13.3's warning depends on.
+//
+// The roadmap says the handoff TTL "must not be cut until the member platform's
+// handoff is redeployed in step, or every session dies on arrival". That is
+// only true if the Vitals SESSION inherits the handoff token's expiry. It does
+// not: /api/auth/enter verifies the incoming token and then mints a FRESH
+// session on SESSION_TTL_SECONDS. Cutting the mint TTL is therefore a
+// one-sided change on the platform, and these tests are here so that stays
+// true - if someone makes the session inherit `exp`, this fails.
+describe("handoff TTL is independent of session TTL", () => {
+  const SHORT_SECRET = "a-test-secret-at-least-16-chars";
+  const who = { sub: "m_ttl", name: "Ada", chapter: "c_1", role: "student" as const };
+
+  it("a 60-second handoff token verifies immediately", () => {
+    const t = mintIdentityToken(SHORT_SECRET, { ...who, ttlSeconds: 60 });
+    expect(verifyIdentityToken(SHORT_SECRET, t).ok).toBe(true);
+  });
+
+  it("and is refused a minute later", () => {
+    const t = mintIdentityToken(SHORT_SECRET, { ...who, ttlSeconds: 60 });
+    expect(verifyIdentityToken(SHORT_SECRET, t, Math.floor(Date.now() / 1000) + 61).ok).toBe(false);
+  });
+
+  it("the session it produces outlives it by hours", () => {
+    // mintSessionToken mints on SESSION_TTL_SECONDS, never on the incoming
+    // token's exp - so the session length is this constant and nothing else.
+    expect(SESSION_TTL_SECONDS).toBe(8 * 3600);
+    const handoff = verifyIdentityToken(SHORT_SECRET, mintIdentityToken(SHORT_SECRET, { ...who, ttlSeconds: 60 }));
+    const session = verifyIdentityToken(
+      SHORT_SECRET,
+      mintIdentityToken(SHORT_SECRET, { ...who, ttlSeconds: SESSION_TTL_SECONDS }),
+    );
+    expect(handoff.ok && session.ok).toBe(true);
+    if (!handoff.ok || !session.ok) return;
+    expect(session.identity.exp - handoff.identity.exp).toBeGreaterThan(7 * 3600);
   });
 });

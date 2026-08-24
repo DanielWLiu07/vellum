@@ -527,14 +527,22 @@ Do not weaken these without understanding what they cost:
 
 Ordered by what actually blocks members.
 
-### 13.1 No notification system — highest impact
+### 13.1 No notification system — mostly closed
 
-Vitals has **no email and no in-app notification of any kind**. Assigning work
-notifies nobody: a student learns about it only by opening Vitals and checking "My
-assignments". Due dates pass silently.
+**In-app notification now exists** (`lib/notifications.ts`, `/api/notifications`,
+the bell in the top bar). Assigning raises one for the assignee; completing or
+reopening raises one for the trainer; an admin can send one by hand. Due dates
+raise `assignment.due_soon` / `assignment.overdue` via a lazy sweep
+(`lib/due-sweep.ts`), because Vitals has no scheduler and inventing one would be
+a lie.
 
-This is the difference between assignment working mechanically and working at all.
-The member platform has a `notify()` primitive; Vitals never got one.
+**Still open, and it is the half that matters for a member who is not looking:**
+there is no email. The sweep runs when a member reads their own work, so someone
+who never opens Vitals is still never told. The bell shows everything the moment
+they arrive, which is a real improvement over silence — but "due dates pass
+silently" is only half-solved, and this gap should not be ticked off as done.
+Email, or an explicit decision to route through the member platform's Resend
+integration, is what closes it.
 
 ### 13.2 Blocked on external configuration
 
@@ -551,20 +559,29 @@ but the queue is only as useful as the person draining it.
 - **Roster completeness.** Only members who have opened Vitals are known (§4.4). A
   roster sync from the member platform would fix it properly.
 - **Single-instance only.** The store design (§4.2) cannot be scaled horizontally.
-- **Identity token TTL is 8h.** It is a bearer credential in a URL; ~60s is enough to
-  survive the redirect. Must not be cut until the member platform's handoff is
-  redeployed in step, or every session dies on arrival.
+- ~~**Identity token TTL is 8h.**~~ **Done — cut to 120s.** The lockstep warning
+  that used to sit here was wrong, and worth recording why: it assumed a short
+  handoff token would produce a short session. It does not. `/api/auth/enter`
+  verifies the incoming token and then mints a **fresh** session cookie on its
+  own `SESSION_TTL_SECONDS`, never inheriting `exp`. Cutting the mint TTL is a
+  one-sided change on the platform. Verified end to end across both repos: a
+  120s token is accepted and the resulting session cookie is still `Max-Age=28800`.
+  `lib/identity-token.test.ts` now pins that independence so it stays true.
 - **No component tests.** Vitest runs in the `node` environment; `lib/` and
   `app/api/` are well covered, React components are not covered at all.
 
 ### 13.4 Product decisions outstanding — MUST be settled before Phase 1
 
 - **Official practice tests** — scope undecided.
-- **Integration status.** The member platform removed `lib/vitals.ts` and
-  `app/(dashboard)/study/route.ts` in favour of an in-house Courses/Resources system.
-  As of that change there is **no route into Vitals from the main site**, and every
-  feature here is reachable only by a hand-minted token. Settle this before building
-  further.
+- ~~**Integration status.**~~ **This entry was false and is withdrawn.** It said
+  the member platform had removed `lib/vitals.ts` and `app/(dashboard)/study/route.ts`
+  and that there was no route into Vitals from the main site. In the current
+  checkout all of it exists and is wired: `lib/vitals.ts`, the `/study` route
+  calling `vitalsEnterUrl`, `lib/auth/external-handoff.ts` (which exists
+  specifically to special-case `/study` as an off-origin hop), and two passing
+  test files covering the handoff. The Phase 0 question this blocked was already
+  answered. What IS true is narrower: no navigation link points at `/study`, so
+  the route is reachable only by typing it.
 
 ---
 
@@ -574,25 +591,30 @@ Phases are ordered by what unblocks members, not by what is interesting to build
 Nothing in Phase 1 is speculative — each item closes a gap named in §13.
 
 ### Phase 0 — Decide (blocking)
-- [ ] Settle whether Vitals stays in the product (§13.4). The member platform removed
-      its `/study` handoff; until that is answered, everything below is speculative
+- [x] ~~Settle whether Vitals stays in the product (§13.4)~~ — the premise was
+      wrong. The `/study` handoff was never removed; see §13.4. Nothing below is
+      blocked on it. Remaining: add a navigation link to `/study`, which is the
+      real gap
 - [ ] Scope "official practice tests" — what counts as official, who authors them
 - [ ] Top up the OpenAI account, or accept that every upload needs human review
 
 ### Phase 1 — Make assignment actually work (Weeks 1–2)
-- [ ] Notification primitive in `lib/` — one `notify(member, event)` seam, storage-backed
-- [ ] Notify on assign, on due-soon, on overdue
-- [ ] Unread indicator in the dashboard shell
+- [x] Notification primitive in `lib/` — `lib/notifications.ts`, storage-backed,
+      with actor-based self-suppression and burst collapsing
+- [x] Notify on assign, on due-soon, on overdue — the last two via the lazy
+      sweep in `lib/due-sweep.ts`, since there is no scheduler
+- [x] Unread indicator in the dashboard shell — the bell in `app-topnav`
 - [ ] Email delivery, or an explicit decision to route notifications through the
-      member platform's Resend integration instead of adding one here
-- [ ] Tests: a member assigned work has exactly one notification; unassign clears it
+      member platform's Resend integration instead of adding one here.
+      **Still the one that matters** — see §13.1
+- [x] Tests: covered in `lib/notifications.test.ts` and `lib/due-sweep.test.ts`
 
 ### Phase 2 — Close the data gaps (Weeks 3–4)
 - [ ] Roster sync from the member platform, so a trainer can assign to a student who
       has never opened Vitals (§4.4)
 - [ ] Provision R2 in production; verify uploads survive a restart
-- [ ] Cut the identity-token TTL to ~60s — **only after** the host handoff is
-      redeployed in step, or every session dies on arrival (§13.3)
+- [x] Cut the identity-token TTL — done, 120s, and no lockstep was needed; the
+      warning that used to be here rested on a false premise (§13.3)
 - [ ] Drain the moderation queue; confirm `unchecked` returns to zero once the API key works
 
 ### Phase 3 — Coverage and scale (Weeks 5–7)
