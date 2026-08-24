@@ -50,6 +50,7 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
   const [answerKey, setAnswerKey] = React.useState<number[] | null>(null);
   const [shown, setShown] = React.useState<Set<number>>(new Set());
   const [sheetOpen, setSheetOpen] = React.useState(false);
+  const [flagged, setFlagged] = React.useState<Set<number>>(new Set());
 
   // Exam-mode runtime state.
   const [started, setStarted] = React.useState(false);
@@ -263,15 +264,47 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
 
   const answered = answers.filter((a) => a >= 0).length;
   const lowTime = remaining !== null && remaining <= 30;
+  // A sitting in progress, as opposed to the gate before it or the result
+  // after. Only then does the head pin itself to the top of the viewport.
+  const examRunning = isExam && !result;
 
-  return (
+  // "Mark for later" — purely the taker's own working state. It is never sent
+  // anywhere: flagging a question is a note to yourself about where to come
+  // back to, not a signal about the paper, and shipping it to the server would
+  // make a private hesitation into something a reviewer could read.
+  const toggleFlag = (qi: number) =>
+    setFlagged((prev) => {
+      const next = new Set(prev);
+      if (next.has(qi)) next.delete(qi); else next.add(qi);
+      return next;
+    });
+
+  // Jump to a question. scroll-margin-top on .quiz-take-q keeps the target
+  // clear of the pinned head rather than landing underneath it.
+  const jumpTo = (qi: number) => {
+    document.getElementById(`quiz-q-${qi}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  // Built once, then either returned bare or wrapped with the navigator.
+  const card = (
     <div className="upload-card">
-      <div className="study-head">
+      {/* During an exam this is a PINNED bar, not a heading that scrolls away
+          with the first question. The countdown is the one thing a taker needs
+          continuously and it used to leave the screen as soon as they started
+          reading — on a long paper you could not see how long was left without
+          scrolling back up, during the one activity where that matters most.
+          Progress rides along with it for the same reason. */}
+      <div className={`study-head${examRunning ? " is-exam-running" : ""}`}>
         <h1 className="upload-h">{quiz.title}</h1>
         {result ? (
           <span className="section-count">{result.score} / {result.total}</span>
-        ) : isExam && remaining !== null ? (
-          <span className={`exam-timer${lowTime ? " is-low" : ""}`} role="timer" aria-live="off">{fmtClock(remaining)}</span>
+        ) : examRunning ? (
+          <span className="exam-head-status">
+            <span className="section-count">{answered} / {quiz.questions.length} answered</span>
+            {remaining !== null && (
+              <span className={`exam-timer${lowTime ? " is-low" : ""}`} role="timer" aria-live="off">{fmtClock(remaining)}</span>
+            )}
+          </span>
         ) : (
           <span className="section-count">{answered} / {quiz.questions.length} answered</span>
         )}
@@ -327,8 +360,27 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
             : undefined;
           const perQ = !isExam && result ? result.correct?.[qi] : undefined;
           return (
-            <div key={qi} className={`quiz-take-q${perQ === undefined ? "" : perQ ? " is-correct" : " is-wrong"}`}>
-              <p className="quiz-take-prompt">{qi + 1}. {q.prompt}{perQ === undefined ? "" : perQ ? "  (correct)" : "  (incorrect)"}</p>
+            <div
+              key={qi}
+              id={`quiz-q-${qi}`}
+              className={`quiz-take-q${perQ === undefined ? "" : perQ ? " is-correct" : " is-wrong"}${flagged.has(qi) ? " is-flagged" : ""}`}
+            >
+              <div className="quiz-take-q-head">
+                <p className="quiz-take-prompt">{qi + 1}. {q.prompt}{perQ === undefined ? "" : perQ ? "  (correct)" : "  (incorrect)"}</p>
+                {/* Flagging belongs on the question as well as in the rail —
+                    you decide to come back while you are reading it, not while
+                    looking at the sidebar. */}
+                {examRunning && (
+                  <button
+                    type="button"
+                    className={`quiz-flag-btn${flagged.has(qi) ? " is-flagged" : ""}`}
+                    aria-pressed={flagged.has(qi)}
+                    onClick={() => toggleFlag(qi)}
+                  >
+                    {flagged.has(qi) ? "Flagged" : "Mark for later"}
+                  </button>
+                )}
+              </div>
               {q.promptImageId && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img className="quiz-take-image" src={`/api/images/${q.promptImageId}`} alt="" />
@@ -405,6 +457,53 @@ export function QuizTake({ quizId, backHref = RETURN_TO.quizzes }: {
         {!examInProgress && <ReportProblem target={quizTarget} />}
         <Link className="dash-back" href={backHref}>← {backLabel}</Link>
       </div>
+    </div>
+  );
+
+  if (!examRunning) return card;
+
+  const flaggedCount = flagged.size;
+  const unanswered = quiz.questions.length - answered;
+
+  return (
+    <div className="exam-layout">
+      {/* The rail answers "where am I, and what have I not done" without
+          scrolling the paper. On a timed sitting the taker's real question near
+          the end is which items are still blank — counting them by scrolling
+          costs exactly the time they do not have. */}
+      <aside className="exam-nav" aria-label="Question navigator">
+        <p className="exam-nav-title">Questions</p>
+        <ol className="exam-nav-grid">
+          {quiz.questions.map((_, qi) => {
+            const isAnswered = answers[qi] >= 0;
+            const isFlagged = flagged.has(qi);
+            return (
+              <li key={qi}>
+                <button
+                  type="button"
+                  className={`exam-nav-item${isAnswered ? " is-answered" : ""}${isFlagged ? " is-flagged" : ""}`}
+                  onClick={() => jumpTo(qi)}
+                  aria-label={`Question ${qi + 1}: ${isAnswered ? "answered" : "not answered"}${isFlagged ? ", flagged for later" : ""}`}
+                >
+                  {qi + 1}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+        {/* Counts, because scanning 60 squares to find the blanks is the work
+            the rail is supposed to save. */}
+        <p className="exam-nav-counts">
+          <span>{answered} answered</span>
+          {unanswered > 0 && <span className="is-todo">{unanswered} left</span>}
+          {flaggedCount > 0 && <span className="is-flagged">{flaggedCount} flagged</span>}
+        </p>
+        <p className="exam-nav-legend">
+          <span className="exam-nav-key is-answered" aria-hidden /> answered
+          <span className="exam-nav-key is-flagged" aria-hidden /> flagged
+        </p>
+      </aside>
+      {card}
     </div>
   );
 }

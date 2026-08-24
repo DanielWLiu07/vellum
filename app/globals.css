@@ -1694,6 +1694,121 @@ h3 {
 
 .study { max-width: 640px; margin: 24px auto; display: flex; flex-direction: column; gap: 16px; }
 .study-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+
+/* The exam head, pinned while a sitting is in progress.
+   Negative margins pull it out to the card's edges and up over its top padding
+   so it reads as the card's own top bar rather than a floating strip, and it
+   carries an opaque background because the questions scroll UNDER it — a
+   transparent sticky bar shows the text sliding through the countdown.
+   .upload-card sets no overflow, which is what lets sticky work here at all. */
+.study-head.is-exam-running {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  align-items: center;
+  margin: -28px -28px 0;
+  padding: 14px 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+}
+/* The title must yield, not the countdown: a long exam name would otherwise
+   push the timer off the row or wrap the bar to two lines. */
+.study-head.is-exam-running .upload-h {
+  min-width: 0;
+  font-size: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.exam-head-status { display: inline-flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+
+/* ------------------------------------------------- exam question navigator */
+/* Two columns only while a sitting is in progress. .upload-card keeps its own
+   640px measure, so the paper reads exactly as it did; the rail is added
+   beside it rather than by squeezing the questions. */
+.exam-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  justify-content: center;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.exam-layout .upload-card { margin: 24px 0; flex: 1 1 640px; min-width: 0; }
+.exam-nav {
+  position: sticky;
+  top: 0;
+  flex: 0 0 176px;
+  margin-top: 24px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.exam-nav-title {
+  margin: 0 0 10px; font-size: 11px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft);
+}
+.exam-nav-grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+}
+.exam-nav-item {
+  appearance: none; cursor: pointer; width: 100%; aspect-ratio: 1;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface); color: var(--ink-soft);
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.exam-nav-item:hover { border-color: var(--teal); color: var(--teal); }
+/* Answered is the filled state — the eye should find the GAPS, which are the
+   thing the taker is looking for. */
+.exam-nav-item.is-answered { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+/* Flagged outranks answered in the outline, because a flagged-and-answered
+   question is still one you meant to revisit. */
+.exam-nav-item.is-flagged { border-color: var(--maroon); box-shadow: inset 0 0 0 1px var(--maroon); }
+.exam-nav-counts {
+  margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 4px 10px;
+  font-size: 11px; font-weight: 700; color: var(--ink-soft);
+}
+.exam-nav-counts .is-todo { color: var(--ink); }
+.exam-nav-counts .is-flagged { color: var(--maroon); }
+.exam-nav-legend {
+  margin: 8px 0 0; display: flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--ink-soft);
+}
+.exam-nav-key { width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--border); display: inline-block; }
+.exam-nav-key.is-answered { background: var(--teal); border-color: var(--teal); }
+.exam-nav-key.is-flagged { border-color: var(--maroon); box-shadow: inset 0 0 0 1px var(--maroon); }
+
+/* Clear of the pinned head when jumped to, instead of landing under it. */
+.quiz-take-q { scroll-margin-top: 74px; }
+.quiz-take-q.is-flagged { border-left-color: var(--maroon); }
+.quiz-take-q-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.quiz-take-q-head .quiz-take-prompt { margin-bottom: 0; min-width: 0; }
+.quiz-flag-btn {
+  appearance: none; cursor: pointer; flex: 0 0 auto;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface); color: var(--ink-soft);
+  padding: 3px 10px; font-size: 11px; font-weight: 700;
+}
+.quiz-flag-btn:hover { border-color: var(--maroon); color: var(--maroon); }
+.quiz-flag-btn.is-flagged { background: var(--maroon); border-color: var(--maroon); color: #fff; }
+
+/* Below the two-column breakpoint the rail moves above the paper and the
+   squares reflow — a horizontal strip is still a usable index. */
+@media (max-width: 900px) {
+  .exam-layout { flex-direction: column; align-items: stretch; max-width: 640px; }
+  .exam-nav { position: static; flex: 1 1 auto; margin-top: 24px; }
+  .exam-nav-grid { grid-template-columns: repeat(10, 1fr); }
+  .exam-layout .upload-card { margin-top: 12px; }
+}
+@media (max-width: 520px) {
+  /* Progress is derivable from the questions; the clock is not. Drop it first. */
+  .study-head.is-exam-running .exam-head-status .section-count { display: none; }
+}
 .flashcard {
   appearance: none;
   display: flex;
@@ -1968,6 +2083,7 @@ h3 {
 .quiz-take-q.is-correct { border-left-color: var(--teal); }
 .quiz-take-q.is-wrong { border-left-color: var(--maroon); }
 .quiz-take-prompt { font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.quiz-take-q-head { margin-bottom: 8px; }
 .quiz-take-choices { display: flex; flex-direction: column; gap: 4px; }
 .quiz-take-choice {
   display: flex; align-items: center; gap: 8px;
@@ -2987,3 +3103,31 @@ button.viewer-copy-btn:disabled { opacity: 0.6; cursor: default; }
   min-height: 116px;
   padding: 18px 16px;
 }
+
+/* Admin compose (§13.1) — the one place a human writes a notification. */
+.notif-compose { display: flex; flex-direction: column; gap: 14px; max-width: 560px; }
+.notif-compose textarea { resize: vertical; font: inherit; }
+.notif-compose-note { font-size: 12px; color: var(--ink-soft); }
+.notif-compose-note code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--backdrop);
+  font-size: 11.5px;
+}
+
+/* The broadcast caveat carries a warning rail: "everyone" is the one
+   irreversible, everyone-sees-it action here, and it must not read as a hint. */
+.notif-compose-scope {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--maroon);
+  border-radius: 0 6px 6px 0;
+  background: var(--tan-soft);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.notif-compose-actions { display: flex; gap: 10px; align-items: center; }
+.notif-compose-status { margin: 0; font-size: 13px; color: var(--ink-soft); }
+.notif-compose-status.is-err { color: var(--maroon); }
