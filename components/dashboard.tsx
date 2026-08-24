@@ -15,10 +15,13 @@ import { FavoriteButton } from "./favorite-button";
 import { useFavorites } from "./favorites-context";
 import { FlashcardsView } from "./flashcards-view";
 import { MoveToFolder } from "./move-to-folder";
+import { AssignToPeople } from "./assign-to-people";
+import { AssignmentParts, partsLabel, partsOf } from "./assignment-parts";
 import { ShareDialog, type ShareTarget } from "./share-dialog";
 import { useDecks } from "./use-decks";
 import { useFolders } from "./use-folders";
 import { QuizzesView } from "./quizzes-view";
+import { ExaminationsView } from "./examinations-view";
 import { SkillsView } from "./buzzer-game";
 import { FeedbackView } from "./feedback-view";
 import { ModerationView } from "./moderation-view";
@@ -28,11 +31,13 @@ import { AssignModal } from "./assign-modal";
 import { AssignedWorkView } from "./assigned-work-view";
 import { ChapterView } from "./chapter-view";
 import { ChapterSummary } from "./chapter-summary";
+import { TodoView } from "./todo-view";
 import {
-  completeAssignment,
+  canAssign,
   formatDue,
   KIND_LABEL,
   refHref,
+  setAssignmentStatus,
   useAssignments,
   useMe,
   type Assignment,
@@ -175,11 +180,11 @@ function DocToolbar({ q, setQ, sort, setSort, shown, total, events, event, setEv
 // from the SIGNED session — self for a student, chapter for a trainer or
 // advisor, everything for an admin — and refuses to widen. One view can serve
 // every role because the server, not the menu, draws the boundary.
-const SHARED_SECTIONS = ["guidelines", "modules", "feedback", "chapter", "assigned"];
+const SHARED_SECTIONS = ["guidelines", "modules", "feedback", "chapter", "assigned", "todo"];
 
 // Sections an advisor shares with students (they are a student too); anything
 // else in the advisor menu is advisor-only and renders in AdvisorView.
-const STUDENT_SECTIONS = new Set(["home", "assignments", "resources", "flashcards", "quizzes", "results", "skills"]);
+const STUDENT_SECTIONS = new Set(["home", "assignments", "resources", "flashcards", "quizzes", "examinations", "results", "skills"]);
 
 /* ---------------------------------------------------------------- toasts */
 
@@ -397,7 +402,16 @@ export function Dashboard() {
         />
 
         <main className="dash-main">
-          <p className="dash-sub" style={{ marginBottom: 20 }}>{active.blurb}</p>
+          {/* The role blurb describes where a role LANDS, not wherever you have
+              navigated since — "What's assigned to me, and my progress." is a
+              sentence about Home. Rendered unconditionally it followed the
+              member onto Resources, Modules, Quizzes and every other section as
+              a subtitle for a page it wasn't about, and each of those sections
+              already writes its own copy (Resources' line under the scope tabs
+              changes with the tab). So it belongs on the landing view only. */}
+          {section === DEFAULT_SECTION[role] && (
+            <p className="dash-sub" style={{ marginBottom: 20 }}>{active.blurb}</p>
+          )}
           {section === "guidelines" && <OfficialGuidelinesView />}
           {/* Modules: the HOSA-authored official content, its own tab. Rendered
               here (all handlers in scope) so every role shares one view; admins
@@ -406,6 +420,10 @@ export function Dashboard() {
           {section === "feedback" && <FeedbackView admin={adminControls} />}
           {section === "chapter" && <ChapterView refreshToken={assignmentsVersion} onAssign={setAssignTo} />}
           {section === "assigned" && <AssignedWorkView viewQuery={viewQuery} />}
+          {/* Shared for the same reason "assigned" is: every read behind it is
+              already scoped to the SIGNED session (own assignments, own
+              attempts, viewable quizzes), so one view serves all four roles. */}
+          {section === "todo" && <TodoView viewQuery={viewQuery} />}
           {!SHARED_SECTIONS.includes(section) && role === "student" && <StudentView section={section} docs={docs} viewQuery={viewQuery} notify={notify} uploading={uploading} loading={loading} loadError={loadError} onRetry={onRetry} onUploadClick={pickFile} onShareScope={setShareScopeDoc} onCopy={onCopy} onChanged={onRetry} />}
           {/* Same split the advisor already used: a trainer is a member too, so
               the sections they share with students render from StudentView and
@@ -492,11 +510,14 @@ function ProgressBar({ value, done, total }: { value: number; done?: number; tot
     </div>
   );
 }
-function LessonCard({ title, sub, badge, actions, thumbId, favorite, previewId, previewable }: { title: string; sub: string; badge?: React.ReactNode; actions: React.ReactNode; thumbId?: string; favorite?: React.ReactNode; previewId?: string; previewable?: boolean }) {
+function LessonCard({ title, sub, badge, actions, thumbId, favorite, previewId, previewable, extra }: { title: string; sub: string; badge?: React.ReactNode; actions: React.ReactNode; thumbId?: string; favorite?: React.ReactNode; previewId?: string; previewable?: boolean; extra?: React.ReactNode }) {
   return (
     <div className="tile">
-      <CardThumb cover={thumbId} previewId={previewId} previewable={previewable} badge={badge} favorite={favorite} />
-      <div className="tile-info"><p className="tile-title">{title}</p><p className="tile-sub">{sub}</p></div>
+      {/* The title doubles as the thumbnail's fallback: a deck or a quiz has no
+          page to preview, so without it every one of those cards is the same
+          three grey bars. */}
+      <CardThumb cover={thumbId} previewId={previewId} previewable={previewable} badge={badge} favorite={favorite} title={title} />
+      <div className="tile-info"><p className="tile-title">{title}</p><p className="tile-sub">{sub}</p>{extra}</div>
       <div className="tile-actions">{actions}</div>
     </div>
   );
@@ -548,6 +569,10 @@ function DocsError({ onRetry }: { onRetry: () => void }) {
 
 function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, onUploadClick, uploading, loading, loadError, onRetry, heading, canUpload = true, admin = false }: SharedProps & { heading: string; canUpload?: boolean; admin?: boolean }) {
   const viewer = useViewer();
+  const [assigning, setAssigning] = useState<{ kind: "doc"; id: string; title: string } | null>(null);
+  const [assignMsg, setAssignMsg] = useState<string | null>(null);
+  // Presentation-only mirror of the assign gate; /api/assignments re-decides.
+  const mayAssign = canAssign(useMe()?.role);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<DocSort>("newest");
   const { countOf } = useFavorites();
@@ -635,6 +660,7 @@ function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, 
                 <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>View</Link>
                 {!d.bundled && canManageSharing(d, viewer) && <button className="btn" onClick={() => onShareScope(d)}>Share</button>}
                 <button className="btn" onClick={() => onShare(d)}>Get link</button>
+                {mayAssign && <button className="btn" onClick={() => setAssigning({ kind: "doc", id: d.id, title: d.name })}>Assign...</button>}
                 <button className="btn" onClick={() => onCopy(d)}>Make a copy</button>
                 {admin && !d.bundled && (
                   <button className={`btn${d.official ? " danger" : ""}`} onClick={() => void toggleOfficial(d)}>
@@ -650,6 +676,14 @@ function DocManager({ docs, viewQuery, onShare, onShareScope, onDelete, onCopy, 
           )
         )}
       </div>
+      {assignMsg && <p className="dash-sub" role="status" style={{ marginTop: 10 }}>{assignMsg}</p>}
+      {assigning && (
+        <AssignToPeople
+          resource={assigning}
+          onClose={() => setAssigning(null)}
+          notify={setAssignMsg}
+        />
+      )}
     </section>
   );
 }
@@ -692,9 +726,14 @@ function StudentView({ section, docs, viewQuery, notify, uploading, loading, loa
     .filter((a) => a.status !== "done")
     .sort((a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity))[0];
 
-  async function markDone(a: Assignment) {
+  // Marking work complete has to be reversible. It was one-way, so a student
+  // who ticked the wrong row — or finished, then realised they hadn't — had no
+  // way back and the trainer's completion count was wrong with it. The server
+  // now takes either status; the button is the other half.
+  async function toggleDone(a: Assignment) {
     setBusyId(a.id);
-    const res = await completeAssignment(a.id, a.title);
+    const next = a.status === "done" ? "todo" : "done";
+    const res = await setAssignmentStatus(a.id, a.title, next);
     setBusyId(null);
     notify(res.message);
     if (res.ok) await reloadAssignments();
@@ -709,6 +748,10 @@ function StudentView({ section, docs, viewQuery, notify, uploading, loading, loa
   // Flashcard decks are resources too: they show in this grid alongside docs.
   const { decks, copy: copyDeck, del: delDeck, load: reloadDecks, busyId: deckBusy } = useDecks();
   const [deckShare, setDeckShare] = useState<ShareTarget | null>(null);
+  // Resource-first assignment: the resource is already chosen, the dialog only
+  // asks who. Presentation-only gate — /api/assignments re-decides.
+  const [assigning, setAssigning] = useState<{ kind: "doc" | "deck"; id: string; title: string } | null>(null);
+  const mayAssign = canAssign(me?.role);
 
   if (section === "home") {
     return (
@@ -733,7 +776,9 @@ function StudentView({ section, docs, viewQuery, notify, uploading, loading, loa
               <p className="lesson-title">{next.title}</p>
             </div>
             <div className="lesson-end">
-              <Link className="btn primary" href={refHref(next.kind, next.refId, viewQuery)}>Start</Link>
+              {/* Carries the assigned sections, so a narrowed module opens on
+                  the first one the student hasn't finished. */}
+              <Link className="btn primary" href={refHref(next.kind, next.refId, viewQuery, partsOf(next) ?? undefined)}>Start</Link>
             </div>
           </div>
         )}
@@ -761,15 +806,20 @@ function StudentView({ section, docs, viewQuery, notify, uploading, loading, loa
           ) : (
             assignments.map((a) => (
               <LessonCard key={a.id} title={a.title}
-                sub={`${KIND_LABEL[a.kind]} · from ${a.assignedByName}${formatDue(a.dueAt) ? ` · due ${formatDue(a.dueAt)}` : ""}`}
+                // A narrowed assignment has to say so here, or two cards for
+                // the same module read identically (see components/assignment-parts).
+                sub={`${KIND_LABEL[a.kind]}${partsLabel(a) ? ` · ${partsLabel(a)}` : ""} · from ${a.assignedByName}${formatDue(a.dueAt) ? ` · due ${formatDue(a.dueAt)}` : ""}`}
+                extra={<AssignmentParts assignment={a} />}
                 badge={<StatusBadge status={a.status === "done" ? "done" : "not_started"} />}
                 actions={<>
-                  <Link className="btn primary" href={refHref(a.kind, a.refId, viewQuery)}>Open</Link>
-                  {a.status !== "done" && (
-                    <button className="btn" disabled={busyId === a.id} onClick={() => void markDone(a)}>
-                      {busyId === a.id ? "Saving..." : "Mark done"}
-                    </button>
-                  )}
+                  <Link className="btn primary" href={refHref(a.kind, a.refId, viewQuery, partsOf(a) ?? undefined)}>Open</Link>
+                  <button className="btn" disabled={busyId === a.id} onClick={() => void toggleDone(a)}>
+                    {busyId === a.id
+                      ? "Saving..."
+                      : a.status === "done"
+                        ? "Mark not done"
+                        : "Mark done"}
+                  </button>
                 </>} />
             ))
           )}
@@ -856,25 +906,40 @@ function StudentView({ section, docs, viewQuery, notify, uploading, loading, loa
                 ? `Everything shared with you, viewing as a member of ${chapterNameOf(viewer.chapter)}.`
                 : "Everything shared with you."}
         </p>
-        <div className="folder-bar" role="tablist" aria-label="Folders">
-          <button
-            type="button"
-            className={`folder-chip${!folderId ? " is-active" : ""}`}
-            onClick={() => setFolderId(null)}
-          >
-            All resources
-          </button>
-          {foldersInScope.map((f) => (
+        {/* Two filter rows stack here, and they used to open with the same
+            words: the scope tabs above start with "All resources", and this
+            row's reset chip said "All resources" too. Nothing on screen said
+            what the second row filtered BY, so it read as a duplicate of the
+            first. The row is named, and the chip is just "All" — the scope is
+            in the label, so it doesn't have to be in every chip. */}
+        <div className="folder-bar">
+          <span className="folder-bar-label" id="folder-bar-label">Folders</span>
+          {/* Only the folder chips are tabs. "+ New folder" is an action, and a
+              non-tab child of a tablist is a hole in the same widget. */}
+          <div className="folder-chips" role="tablist" aria-labelledby="folder-bar-label">
             <button
-              key={f.id}
               type="button"
-              className={`folder-chip${folderId === f.id ? " is-active" : ""}${f.official ? " is-official" : ""}`}
-              onClick={() => setFolderId(f.id)}
+              role="tab"
+              aria-selected={!folderId}
+              className={`folder-chip${!folderId ? " is-active" : ""}`}
+              onClick={() => setFolderId(null)}
             >
-              {f.name}
-              <span className="folder-count">{scoped.filter((d) => d.folderId === f.id).length}</span>
+              All
             </button>
-          ))}
+            {foldersInScope.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                role="tab"
+                aria-selected={folderId === f.id}
+                className={`folder-chip${folderId === f.id ? " is-active" : ""}${f.official ? " is-official" : ""}`}
+                onClick={() => setFolderId(f.id)}
+              >
+                {f.name}
+                <span className="folder-count">{scoped.filter((d) => d.folderId === f.id).length}</span>
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             className="folder-chip folder-new"
@@ -931,6 +996,7 @@ function StudentView({ section, docs, viewQuery, notify, uploading, loading, loa
                 <>
                   <Link className="btn primary" href={`/decks/${d.id}${viewQuery}`}>Study</Link>
                   {d.id !== "sample-deck" && canEdit(d, viewer) && <Link className="btn" href={`/decks/${d.id}/edit${viewQuery}`}>Edit</Link>}
+                  {mayAssign && <button className="btn" onClick={() => setAssigning({ kind: "deck", id: d.id, title: d.name })}>Assign...</button>}
                   <button className="btn" disabled={deckBusy === d.id} onClick={() => void copyDeck(d.id)}>Make a copy</button>
                   {d.id !== "sample-deck" && canManageSharing(d, viewer) && (
                     <button className="btn" onClick={() => setDeckShare({ kind: "deck", id: d.id, name: d.name, visibility: d.visibility, chapter: d.chapter, people: d.people, owner: d.owner })}>Share</button>
@@ -962,6 +1028,7 @@ function StudentView({ section, docs, viewQuery, notify, uploading, loading, loa
                 <>
                   <Link className="btn primary" href={`/view/${d.id}${viewQuery}`}>Open</Link>
                   {!d.bundled && canManageSharing(d, viewer) && <button className="btn" onClick={() => onShareScope(docFromItem(d))}>Share</button>}
+                  {mayAssign && <button className="btn" onClick={() => setAssigning({ kind: "doc", id: d.id, title: d.name })}>Assign...</button>}
                   <button className="btn" onClick={() => onCopy(docFromItem(d))}>Make a copy</button>
                   {!d.official && d.owner === viewer.owner && myFolders.length > 0 && (
                     <MoveToFolder docId={d.id} current={d.folderId} folders={myFolders} onMoved={onChanged} />
@@ -989,12 +1056,23 @@ function StudentView({ section, docs, viewQuery, notify, uploading, loading, loa
             onSaved={() => { setDeckShare(null); void reloadDecks(); }}
           />
         )}
+        {assigning && (
+          <AssignToPeople
+            resource={assigning}
+            onClose={() => setAssigning(null)}
+            notify={notify}
+          />
+        )}
       </section>
     );
   }
 
   if (section === "flashcards") return <FlashcardsView />;
   if (section === "quizzes") return <QuizzesView />;
+  // Exams are quizzes with ExamSettings; ExaminationsView narrows the same
+  // /api/quizzes read by KIND, never by access. Quizzes excludes them, so an
+  // exam is listed in exactly one place.
+  if (section === "examinations") return <ExaminationsView />;
   if (section === "results") return <MyAttempts />;
   if (section === "skills") return <SkillsView />;
 
@@ -1006,6 +1084,10 @@ function TrainerView({ section, ...shared }: SharedProps & { section: string }) 
   if (section === "lessons") return <DocManager {...shared} docs={filterScoped(shared.docs, viewer, "accessible")} heading="My lessons" />;
   if (section === "flashcards") return <FlashcardsView />;
   if (section === "quizzes") return <QuizzesView />;
+  // Exams are quizzes with ExamSettings; ExaminationsView narrows the same
+  // /api/quizzes read by KIND, never by access. Quizzes excludes them, so an
+  // exam is listed in exactly one place.
+  if (section === "examinations") return <ExaminationsView />;
   if (section === "results") return <MyAttempts />;
   if (section === "skills") return <SkillsView />;
 

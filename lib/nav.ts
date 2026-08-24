@@ -16,6 +16,13 @@ export const DEFAULT_ROLE: Role = "student";
 // utility links. It is NOT the landing view; see DEFAULT_SECTION.
 const CHAPTER_LINK: NavItem = { id: "chapter", label: "My chapter" };
 
+// Everything still outstanding for whoever is signed in, in one place. Every
+// role gets it — a trainer and an advisor are assigned work and sit exams like
+// anyone else, and an admin has no separate queue either. It leads the list
+// after "My chapter" because with no notification system in Vitals (§13.1)
+// this is the ONLY surface that tells a member something is waiting.
+const TODO_LINK: NavItem = { id: "todo", label: "To do" };
+
 // Every role gets these at the bottom of their section list. Guidelines is
 // a real dashboard SECTION (the event-guidelines browser — see
 // OfficialGuidelinesView), not an external page, so it keeps the shell.
@@ -30,11 +37,19 @@ export const COMMON_LINKS: NavItem[] = [
 export const NAV: Record<Role, NavItem[]> = {
   student: [
     CHAPTER_LINK,
+    TODO_LINK,
     { id: "home", label: "Home" },
     { id: "assignments", label: "My assignments" },
     { id: "modules", label: "Modules" },
     { id: "resources", label: "Resources" },
     { id: "quizzes", label: "Quizzes" },
+    // Timed, proctored sittings. An exam is a quiz with ExamSettings, and it
+    // used to live in the Quizzes list wearing an "Exam" badge — a countdown
+    // that auto-submits, withholds the answer key, and can VOID the attempt,
+    // one tile away from a practice self-test with none of that. The two are
+    // different commitments, so they get different rooms; Quizzes now excludes
+    // exams and this section is the only place they are listed.
+    { id: "examinations", label: "Examinations" },
     // Your own exam results. Sits next to Quizzes because that is where you
     // earned them — and it exists because /api/quizzes/[id]/attempts is
     // rightly owner-only (it carries other members' scores), which left the
@@ -45,6 +60,7 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   trainer: [
     CHAPTER_LINK,
+    TODO_LINK,
     // The other half of assigning. My chapter hands work out; this is where it
     // can be looked at afterwards — without it a trainer could assign across a
     // chapter and then had only a per-member "0/0" to go on.
@@ -58,6 +74,13 @@ export const NAV: Record<Role, NavItem[]> = {
     { id: "resources", label: "Resources" },
     { id: "flashcards", label: "Flashcards" },
     { id: "quizzes", label: "Quizzes" },
+    // Timed, proctored sittings. An exam is a quiz with ExamSettings, and it
+    // used to live in the Quizzes list wearing an "Exam" badge — a countdown
+    // that auto-submits, withholds the answer key, and can VOID the attempt,
+    // one tile away from a practice self-test with none of that. The two are
+    // different commitments, so they get different rooms; Quizzes now excludes
+    // exams and this section is the only place they are listed.
+    { id: "examinations", label: "Examinations" },
     // Your own exam results. Sits next to Quizzes because that is where you
     // earned them — and it exists because /api/quizzes/[id]/attempts is
     // rightly owner-only (it carries other members' scores), which left the
@@ -70,6 +93,7 @@ export const NAV: Record<Role, NavItem[]> = {
   // full student menu plus their advisor-only sections.
   advisor: [
     CHAPTER_LINK,
+    TODO_LINK,
     { id: "home", label: "Home" },
     { id: "assignments", label: "My assignments" },
     // Assigned TO you sits directly above assigned BY you — same word, opposite
@@ -79,6 +103,13 @@ export const NAV: Record<Role, NavItem[]> = {
     { id: "modules", label: "Modules" },
     { id: "resources", label: "Resources" },
     { id: "quizzes", label: "Quizzes" },
+    // Timed, proctored sittings. An exam is a quiz with ExamSettings, and it
+    // used to live in the Quizzes list wearing an "Exam" badge — a countdown
+    // that auto-submits, withholds the answer key, and can VOID the attempt,
+    // one tile away from a practice self-test with none of that. The two are
+    // different commitments, so they get different rooms; Quizzes now excludes
+    // exams and this section is the only place they are listed.
+    { id: "examinations", label: "Examinations" },
     { id: "results", label: "My results" },
     { id: "lessons", label: "Chapter lessons" },
     { id: "skills", label: "General skills" },
@@ -86,6 +117,7 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   admin: [
     CHAPTER_LINK,
+    TODO_LINK,
     { id: "overview", label: "Overview" },
     { id: "users", label: "Users & roles" },
     // GET /api/assignments answers "all of them" for an admin, and until now
