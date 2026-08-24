@@ -7,6 +7,8 @@ import type { DeckMeta } from "@/lib/decks";
 import { withBack } from "@/lib/return-to";
 import { canEdit, canManageSharing } from "@/lib/visibility";
 
+import { AssignToPeople } from "./assign-to-people";
+import { canAssign, useMe } from "./use-assignments";
 import { useViewer } from "./use-viewer";
 
 import { FavoriteButton } from "./favorite-button";
@@ -17,6 +19,8 @@ const VIS_LABEL = { public: "Public", chapter: "Chapter", private: "Private" } a
 
 export function FlashcardsView() {
   const viewer = useViewer();
+  // Presentation-only mirror of the assign gate; the route re-decides.
+  const mayAssign = canAssign(useMe()?.role);
   // Study and edit links carry the way back to this list (role + section), so
   // clearing a deck returns here.
   const backHref = useDashboardReturn("flashcards");
@@ -25,6 +29,7 @@ export function FlashcardsView() {
   const [loadError, setLoadError] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [share, setShare] = React.useState<ShareTarget | null>(null);
+  const [assigning, setAssigning] = React.useState<DeckMeta | null>(null);
   const [flash, setFlashMsg] = React.useState<string | null>(null);
   const flashTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Show a transient status line that clears itself (banners that never
@@ -128,6 +133,7 @@ export function FlashcardsView() {
                 <div className="tile-actions">
                   <Link className="btn primary" href={withBack(`/decks/${d.id}`, backHref)}>Study</Link>
                   {editable && <Link className="btn" href={withBack(`/decks/${d.id}/edit`, backHref)}>Edit</Link>}
+                  {mayAssign && <button type="button" className="btn" onClick={() => setAssigning(d)}>Assign...</button>}
                   <button type="button" className="btn" disabled={busyId === d.id} onClick={() => copy(d)}>Make a copy</button>
                   {canShare && (
                     <button
@@ -152,6 +158,13 @@ export function FlashcardsView() {
           target={share}
           onClose={() => setShare(null)}
           onSaved={(m) => { setShare(null); setFlash(m); void load(); }}
+        />
+      )}
+      {assigning && (
+        <AssignToPeople
+          resource={{ kind: "deck", id: assigning.id, title: assigning.title }}
+          onClose={() => setAssigning(null)}
+          notify={setFlash}
         />
       )}
     </section>
