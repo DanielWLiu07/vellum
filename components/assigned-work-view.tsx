@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { AssignmentParts, partsLabel, partsOf } from "./assignment-parts";
 import {
   formatDue,
   KIND_LABEL,
@@ -190,9 +191,14 @@ export function AssignedWorkView({ viewQuery = "" }: { viewQuery?: string }) {
                       <span className="assigned-title">{a.title}</span>
                       <span className="assigned-meta">
                         {KIND_LABEL[a.kind]}
+                        {/* A trainer reviewing what went out has to see WHICH
+                            sections went out, or two rows for the same module
+                            are indistinguishable here too. */}
+                        {partsLabel(a) ? ` · ${partsLabel(a)}` : ""}
                         {due ? ` · due ${due}` : ""}
                         {` · from ${a.assignedByName}`}
                       </span>
+                      <AssignmentParts assignment={a} />
                       <span
                         className={`badge ${
                           a.status === "done"
@@ -212,7 +218,7 @@ export function AssignedWorkView({ viewQuery = "" }: { viewQuery?: string }) {
                       <span className="assigned-actions">
                         <Link
                           className="btn"
-                          href={refHref(a.kind, a.refId, viewQuery)}
+                          href={refHref(a.kind, a.refId, viewQuery, partsOf(a) ?? undefined)}
                         >
                           Open
                         </Link>

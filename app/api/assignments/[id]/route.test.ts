@@ -89,11 +89,32 @@ describe("PATCH /api/assignments/[id]", () => {
     expect((await patch(PEOPLE.ada, "as_nope")).status).toBe(404);
   });
 
-  it("400s a body that isn't {status:'done'}", async () => {
-    expect((await patch(PEOPLE.ada, assignmentId, { status: "todo" })).status).toBe(400);
+  it("400s a body whose status isn't one we recognise", async () => {
+    expect((await patch(PEOPLE.ada, assignmentId, { status: "finished" })).status).toBe(400);
+    expect((await patch(PEOPLE.ada, assignmentId, { status: true })).status).toBe(400);
     // No body at all.
     expect((await PATCH(req(PEOPLE.ada, assignmentId, "PATCH"), ctx(assignmentId))).status).toBe(400);
     expect(getAssignment(assignmentId)?.status).toBe("todo");
+  });
+
+  // `{status:"todo"}` used to be a 400 - completion was a one-way door, so a
+  // mis-tap was permanent and the trainer's progress count stayed wrong with
+  // nothing either party could do. Reopening is now a first-class transition.
+  it("lets the assignee reopen work they had marked done", async () => {
+    expect((await patch(PEOPLE.ada, assignmentId, { status: "done" })).status).toBe(200);
+    expect(getAssignment(assignmentId)?.status).toBe("done");
+    expect(typeof getAssignment(assignmentId)?.completedAt).toBe("number");
+
+    expect((await patch(PEOPLE.ada, assignmentId, { status: "todo" })).status).toBe(200);
+    expect(getAssignment(assignmentId)?.status).toBe("todo");
+    // Not a stale timestamp on a row that is no longer done.
+    expect(getAssignment(assignmentId)?.completedAt).toBeNull();
+  });
+
+  it("still refuses a trainer reopening someone else's work", async () => {
+    await patch(PEOPLE.ada, assignmentId, { status: "done" });
+    expect((await patch(PEOPLE.daniel, assignmentId, { status: "todo" })).status).toBe(403);
+    expect(getAssignment(assignmentId)?.status).toBe("done");
   });
 
   it("404s when dashboard mode is off", async () => {

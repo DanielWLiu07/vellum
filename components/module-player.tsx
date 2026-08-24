@@ -18,12 +18,15 @@ import { Comments } from "./comments";
 import { ReportProblem } from "./report-problem";
 import { SlidesScroll } from "./slides-scroll";
 
-type Step = { secIdx: number; secTitle: string; sub: Subsection };
+// secId as well as secIdx: an index positions the step in the sidebar, but only
+// the id can be matched against the sections an assignment named.
+type Step = { secIdx: number; secId: string; secTitle: string; sub: Subsection };
 type Mode = "scroll" | "slideshow";
 
 function flatten(m: Module): Step[] {
   const out: Step[] = [];
-  m.sections.forEach((sec, si) => (sec.subsections ?? []).forEach((sub) => out.push({ secIdx: si, secTitle: sec.title, sub })));
+  m.sections.forEach((sec, si) =>
+    (sec.subsections ?? []).forEach((sub) => out.push({ secIdx: si, secId: sec.id, secTitle: sec.title, sub })));
   return out;
 }
 
@@ -44,10 +47,17 @@ const blockHasContent = (b: Block) =>
 /** A part counts if ANY of its blocks has something in it. */
 const hasContent = (s: Subsection) => (s.blocks ?? []).some(blockHasContent);
 
-export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
+export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules, assignedParts }: {
   moduleId: string;
   /** Validated destination for "Finish" and the sidebar's way out. */
   backHref?: string;
+  /**
+   * Section ids this student was assigned, when they arrived from an
+   * assignment narrowed to part of the module. The whole module stays
+   * navigable - they may want the context either side - but the player opens
+   * on their first assigned section and marks which ones are theirs.
+   */
+  assignedParts?: string[];
 }) {
   const backLabel = returnLabel(backHref);
   const [mod, setMod] = React.useState<Module | null>(null);
@@ -123,6 +133,31 @@ export function ModulePlayer({ moduleId, backHref = RETURN_TO.modules }: {
 
   const steps = React.useMemo(() => (mod ? flatten(mod) : []), [mod]);
   const totalSubs = steps.length;
+
+  const assigned = React.useMemo(() => new Set(assignedParts ?? []), [assignedParts]);
+
+  // Arriving from a narrowed assignment beats resuming: the link means "the bit
+  // you were asked to read", and dropping them somewhere else would ignore why
+  // they clicked. Prefer the first assigned section they have not finished, so
+  // coming back a second time doesn't reopen work already done.
+  React.useEffect(() => {
+    if (resumed.current || assigned.size === 0 || steps.length === 0) return;
+    const mine = steps.filter((s) => assigned.has(s.secId));
+    // Named sections that match nothing in this module - a stale link, or an
+    // edit that removed them. Return WITHOUT claiming the one-shot, so the
+    // resume effect below still runs and they land where they left off, which
+    // is a better answer than the top of a module they were part-way through.
+    if (mine.length === 0) return;
+    resumed.current = true;
+    const target = mine.find((s) => !done.has(s.sub.id)) ?? mine[0]!;
+    const at = steps.indexOf(target);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (at > 0) setI(at);
+    // `done` is deliberately absent from the deps: this is a one-shot landing,
+    // and rerunning it as parts get ticked off would yank the reader forward
+    // mid-module.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assigned, steps]);
 
   // Drop them back where they stopped, once. Later navigation is theirs. The
   // jump follows a fetch, and the ref makes it a one-shot, so it can't cascade.

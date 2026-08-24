@@ -17,10 +17,10 @@ export default async function ModulePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ back?: string }>;
+  searchParams: Promise<{ back?: string; parts?: string }>;
 }) {
   const { id } = await params;
-  const { back } = await searchParams;
+  const { back, parts } = await searchParams;
   const backHref = resolveReturn(back, RETURN_TO.modules);
   const enabled = process.env.VELLUM_DEMO_MODE === "1";
   return (
@@ -29,7 +29,13 @@ export default async function ModulePage({
         <Link href={backHref} className="dash-back">← {returnLabel(backHref)}</Link>
       </AppTopnav>
       {enabled ? (
-        <ModulePlayer moduleId={id} backHref={backHref} />
+        <ModulePlayer
+          moduleId={id}
+          backHref={backHref}
+          // ?parts=sec1,sec3 - the sections this student was assigned. The rest
+          // of the module stays readable; this only says which part is theirs.
+          assignedParts={parts ? parts.split(",").map((x) => x.trim()).filter(Boolean) : undefined}
+        />
       ) : (
         <div className="dash"><p className="dash-muted">Disabled on this deployment.</p></div>
       )}

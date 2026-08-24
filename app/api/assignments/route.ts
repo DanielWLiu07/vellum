@@ -9,6 +9,7 @@ import {
   listAssignmentsFor,
 } from "@/lib/assignments";
 import { recordAudit } from "@/lib/audit";
+import { notify } from "@/lib/notifications";
 import { getProfile, getViewer } from "@/lib/profile";
 import { canAssign, getKnownUser, viewerRole } from "@/lib/users";
 
@@ -24,6 +25,22 @@ function gated() {
 }
 
 const noStore = { headers: { "Cache-Control": "no-store" } };
+
+/**
+ * Where a notification about this assignment should land. A same-origin path
+ * only - lib/notifications drops anything else, and rightly so: a notification
+ * is a link arriving from somewhere the member did not choose.
+ *
+ * Twin of refHref in components/use-assignments, kept separate rather than
+ * imported because that module is a client component and this is a route.
+ */
+function assignmentHref(a: { kind: string; refId: string; parts?: { id: string }[] }): string {
+  if (a.kind === "doc") return `/view/${a.refId}`;
+  if (a.kind === "deck") return `/decks/${a.refId}`;
+  if (a.kind === "quiz") return `/quizzes/${a.refId}`;
+  if (!a.parts?.length) return `/modules/${a.refId}`;
+  return `/modules/${a.refId}?parts=${encodeURIComponent(a.parts.map((p) => p.id).join(","))}`;
+}
 
 /**
  * List assignments, scoped to what the caller is allowed to see:
@@ -61,7 +78,12 @@ export async function GET(req: NextRequest) {
  * request and not from the member's editable profile, so "assign cross-chapter"
  * can't be arranged by editing a profile field.
  *
- * Body: { kind: "doc"|"deck"|"quiz"|"module", refId, assigneeId, dueAt? }
+ * Body: { kind: "doc"|"deck"|"quiz"|"module", refId, assigneeId, dueAt?, parts? }
+ *
+ * `parts` is a list of SECTION IDS narrowing a module assignment to part of the
+ * module. Ids only - the section titles shown to the student are read out of
+ * the module server-side, exactly as `title` is, so a label cannot be smuggled
+ * in through this field.
  */
 export async function POST(req: NextRequest) {
   await enterRequest(req);
@@ -95,12 +117,40 @@ export async function POST(req: NextRequest) {
     assignedByName: getKnownUser(viewer.owner)?.name || getProfile().displayName,
     chapter: target.chapter,
     dueAt: b.dueAt,
+    parts: b.parts,
   });
   if (!res.ok) {
     const status = res.error === "bad_ref" ? 404 : 400;
     return NextResponse.json({ error: res.error === "bad_ref" ? "unknown_ref" : res.error }, { status });
   }
-  // A repeat of an assignment the member already has open isn't a new event.
-  if (!res.duplicate) recordAudit("assignment.create", res.assignment.title, `${res.assignment.kind} -> ${target.name}`);
+  // A repeat of an assignment the member already has open isn't a new event -
+  // no log line, and no second notification for work they already have.
+  if (!res.duplicate) {
+    const a = res.assignment;
+    const parts = a.parts;
+    // Record WHICH parts, not just the module: "assigned EMT Fundamentals"
+    // reads as the whole thing when it may have been one section of six.
+    const scope = parts?.length ? ` (${parts.length} part${parts.length === 1 ? "" : "s"})` : "";
+    recordAudit("assignment.create", a.title, `${a.kind}${scope} -> ${target.name}`);
+
+    // Tell the member. Until now nothing did: work was handed out silently and
+    // a student found it only by chance, which is the gap the architecture doc
+    // calls the highest-impact one in the product.
+    //
+    // Grouped per assigner, so a trainer handing five things to one member in
+    // one sitting is one event to that member rather than five pings. `actor`
+    // lets lib/notifications drop it outright when someone assigns to
+    // themselves, instead of every call site having to remember that rule.
+    notify({
+      to: a.assigneeId,
+      actor: viewer.owner,
+      kind: "assignment.new",
+      title: parts?.length ? `${a.title} — ${parts.map((p) => p.title).join(", ")}` : a.title,
+      body: `${a.assignedByName} assigned you this ${a.kind === "doc" ? "document" : a.kind}.`,
+      href: assignmentHref(a),
+      groupKey: `assign:${viewer.owner}`,
+      groupTitle: "{n} new assignments",
+    });
+  }
   return NextResponse.json({ assignment: res.assignment, duplicate: res.duplicate }, noStore);
 }

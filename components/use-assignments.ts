@@ -75,11 +75,25 @@ export const KIND_LABEL: Record<AssignmentKind, string> = {
  * caller's `?back=` trail, so finishing an assigned quiz returns you to My
  * assignments rather than dumping you in the generic Quizzes list.
  */
-export function refHref(kind: AssignmentKind, refId: string, viewQuery = ""): string {
+/**
+ * Where an assignment opens. `parts` narrows a module assignment to specific
+ * sections; passing it lands the student on the first one they were actually
+ * asked to read instead of the top of a module where most of it isn't theirs.
+ * Ignored for every other kind, none of which has sections.
+ */
+export function refHref(
+  kind: AssignmentKind,
+  refId: string,
+  viewQuery = "",
+  parts?: { id: string }[],
+): string {
   if (kind === "doc") return `/view/${refId}${viewQuery}`;
   if (kind === "deck") return `/decks/${refId}${viewQuery}`;
   if (kind === "quiz") return `/quizzes/${refId}${viewQuery}`;
-  return `/modules/${refId}${viewQuery}`;
+  if (!parts?.length) return `/modules/${refId}${viewQuery}`;
+  const ids = encodeURIComponent(parts.map((p) => p.id).join(","));
+  // viewQuery already carries a leading "?" when present.
+  return `/modules/${refId}${viewQuery ? `${viewQuery}&` : "?"}parts=${ids}`;
 }
 
 export function formatDue(dueAt: number | null): string | null {
@@ -209,7 +223,14 @@ export interface RosterState {
   reload: () => Promise<void>;
 }
 
-/** The members this viewer may assign to. Students get a 403 here, by design. */
+/**
+ * The members this viewer may assign to. Students get a 403 here, by design.
+ *
+ * `role` FILTERS the roster down to members holding that role - it does not
+ * describe the caller, whose scope the server decides from the session. Passing
+ * your own role is a plausible-looking mistake that returns your peers and
+ * nobody you teach; callers who want everyone pass nothing.
+ */
 export function useRoster(role?: string): RosterState {
   const [roster, setRoster] = useState<RosterMember[]>([]);
   const [scope, setScope] = useState<string | null>(null);
@@ -244,16 +265,33 @@ export function useRoster(role?: string): RosterState {
 
 export type MutationResult = { ok: boolean; message: string };
 
-/** Complete an assignment. The API allows only the assignee — see markDone. */
-export async function completeAssignment(id: string, title: string): Promise<MutationResult> {
+/**
+ * Mark an assignment done, or put it back to todo. The API allows only the
+ * assignee — see setStatus. Reopening exists because completion was a one-way
+ * door: a mis-tap could not be undone, and the trainer's progress count was
+ * then wrong for good.
+ */
+export async function setAssignmentStatus(
+  id: string,
+  title: string,
+  status: AssignmentStatus,
+): Promise<MutationResult> {
   const res = await fetch(`/api/assignments/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status: "done" }),
+    body: JSON.stringify({ status }),
   }).catch(() => null);
   if (!res) return { ok: false, message: OFFLINE };
   if (!res.ok) return { ok: false, message: (await readError(res)).message };
-  return { ok: true, message: `Marked "${title}" done` };
+  return {
+    ok: true,
+    message: status === "done" ? `Marked "${title}" done` : `Reopened "${title}"`,
+  };
+}
+
+/** Complete an assignment. Thin alias kept for existing callers. */
+export async function completeAssignment(id: string, title: string): Promise<MutationResult> {
+  return setAssignmentStatus(id, title, "done");
 }
 
 /** Take an assignment back. The API allows only the assigner, or an admin. */
@@ -271,6 +309,12 @@ export async function assignContent(input: {
   assigneeName: string;
   title: string;
   dueAt?: number | null;
+  /**
+   * Section ids narrowing a module assignment to part of the module. Omit for
+   * the whole thing - the server reads absent as "all of it". Ids only: the
+   * titles the student sees are read off the module server-side.
+   */
+  parts?: string[];
 }): Promise<MutationResult> {
   const res = await fetch("/api/assignments", {
     method: "POST",
@@ -280,6 +324,7 @@ export async function assignContent(input: {
       refId: input.refId,
       assigneeId: input.assigneeId,
       ...(input.dueAt ? { dueAt: input.dueAt } : {}),
+      ...(input.parts?.length ? { parts: input.parts } : {}),
     }),
   }).catch(() => null);
   if (!res) return { ok: false, message: OFFLINE };
@@ -289,7 +334,7 @@ export async function assignContent(input: {
     ok: true,
     message: body?.duplicate
       ? `${input.assigneeName} already has "${input.title}" open`
-      : `Assigned "${input.title}" to ${input.assigneeName}`,
+      : `Assigned "${input.title}"${input.parts?.length ? ` (${input.parts.length} part${input.parts.length === 1 ? "" : "s"})` : ""} to ${input.assigneeName}`,
   };
 }
 

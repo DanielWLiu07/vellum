@@ -38,6 +38,18 @@ export interface Assignment {
   refId: string;
   /** Denormalized title of the referenced resource, for list display. */
   title: string;
+  /**
+   * Which SECTIONS of the resource were assigned. Absent or empty means the
+   * whole thing, which is what every assignment made before this field existed
+   * means - so absent must keep reading as "all of it", never as "none of it".
+   *
+   * Only modules have sections, so only modules carry this. Titles are
+   * denormalized for the same reason `title` is: a list render should not fan
+   * out to the module store per row. They are resolved FROM the module and
+   * never taken from the request, so a part label cannot become an
+   * unmoderated free-text channel.
+   */
+  parts?: { id: string; title: string }[];
   assigneeId: string;
   assignedBy: string;
   assignedByName: string;
@@ -57,6 +69,8 @@ export const ID_MAX = 128;
 export const DUE_MAX_AHEAD_MS = 10 * 365 * 24 * 60 * 60 * 1000;
 /** Cap per member so a runaway loop can't grow the store without bound. */
 export const MAX_PER_ASSIGNEE = 200;
+/** Mirrors MAX_SECTIONS in lib/modules - a module cannot have more than this. */
+export const MAX_PARTS = 40;
 
 const g = globalThis as unknown as { __vitalsAssignments?: Map<string, Assignment> };
 const store: Map<string, Assignment> = (g.__vitalsAssignments ??= new Map());
@@ -106,6 +120,32 @@ export async function resolveRef(kind: unknown, refId: unknown): Promise<{ kind:
   return title ? { kind, refId: id, title: clamp(title, TITLE_MAX) } : null;
 }
 
+/**
+ * Turn section ids into {id, title} pairs by reading the module. Returns null
+ * if ANY id is unknown: a stale id means the client is describing a module
+ * that has since been edited, and quietly dropping it would assign less work
+ * than the trainer just asked for without telling anyone.
+ */
+export function resolveParts(moduleId: string, ids: unknown): { id: string; title: string }[] | null {
+  if (!Array.isArray(ids) || ids.length === 0) return null;
+  const mod = getModule(clamp(String(moduleId ?? ""), ID_MAX));
+  if (!mod) return null;
+  const wanted = ids.slice(0, MAX_PARTS).map((v) => clamp(String(v ?? ""), ID_MAX));
+  const out: { id: string; title: string }[] = [];
+  for (const id of wanted) {
+    const sec = mod.sections.find((x) => x.id === id);
+    if (!sec) return null;
+    out.push({ id: sec.id, title: clamp(sec.title, TITLE_MAX) });
+  }
+  // Section ORDER is the module's, not the order the boxes happened to be
+  // ticked in - the student should read them the way the author sequenced them.
+  const order = new Map(mod.sections.map((x, i) => [x.id, i]));
+  out.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  // Every section selected is the whole module; storing it as a part list would
+  // render as "3 of 3 parts" and imply a narrowing that isn't there.
+  return out.length === mod.sections.length ? null : out;
+}
+
 export interface CreateAssignmentInput {
   kind: unknown;
   refId: unknown;
@@ -115,11 +155,18 @@ export interface CreateAssignmentInput {
   /** The ASSIGNEE's chapter (resolved from the signed user directory). */
   chapter: string;
   dueAt?: unknown;
+  /** Section ids to narrow a module assignment to. Omit for the whole thing. */
+  parts?: unknown;
 }
 
 export type CreateAssignmentResult =
   | { ok: true; assignment: Assignment; duplicate: boolean }
-  | { ok: false; error: "bad_ref" | "bad_assignee" | "limit" };
+  | { ok: false; error: "bad_ref" | "bad_assignee" | "limit" | "bad_parts" };
+
+/** Identity of a parts selection, for the duplicate check. Null = whole thing. */
+function partsKey(parts: { id: string }[] | null | undefined): string {
+  return parts && parts.length ? parts.map((p) => p.id).join(",") : "*";
+}
 
 /**
  * Assign a resource to a member. Re-assigning something the member already has
@@ -134,8 +181,26 @@ export async function createAssignment(input: CreateAssignmentInput): Promise<Cr
   const ref = await resolveRef(input.kind, input.refId);
   if (!ref) return { ok: false, error: "bad_ref" };
 
+  // Parts only narrow a module; nothing else has sections to narrow.
+  const parts = ref.kind === "module" ? resolveParts(ref.refId, input.parts) : null;
+  // Asked for specific parts and none of them resolved: refuse rather than
+  // silently assign the whole module, which is more work than was asked for.
+  if (ref.kind === "module" && Array.isArray(input.parts) && input.parts.length > 0 && parts === null) {
+    // ...unless every section was picked, which resolveParts reports as "whole
+    // module" by design. Distinguish the two before refusing.
+    const mod = getModule(ref.refId);
+    const all = mod ? input.parts.length === mod.sections.length : false;
+    if (!all) return { ok: false, error: "bad_parts" };
+  }
+
   const mine = listAssignmentsFor(assigneeId);
-  const open = mine.find((a) => a.status === "todo" && a.kind === ref.kind && a.refId === ref.refId);
+  // Two assignments of the same module differing only in which parts they
+  // cover are NOT duplicates - "read section 2" after "read section 1" is a
+  // second piece of work. Same parts (or both whole) still collapses.
+  const key = partsKey(parts);
+  const open = mine.find(
+    (a) => a.status === "todo" && a.kind === ref.kind && a.refId === ref.refId && partsKey(a.parts ?? null) === key,
+  );
   if (open) return { ok: true, assignment: open, duplicate: true };
   if (mine.length >= MAX_PER_ASSIGNEE) return { ok: false, error: "limit" };
 
@@ -149,6 +214,7 @@ export async function createAssignment(input: CreateAssignmentInput): Promise<Cr
     assignedByName: clamp(input.assignedByName, NAME_MAX) || assignedBy,
     chapter: clamp(input.chapter, CHAPTER_MAX),
     dueAt: cleanDue(input.dueAt),
+    ...(parts ? { parts } : {}),
     status: "todo",
     createdAt: Date.now(),
     completedAt: null,
@@ -198,17 +264,31 @@ export type MutateResult =
   | { ok: true; assignment: Assignment }
   | { ok: false; error: "not_found" | "forbidden" };
 
-/** Complete an assignment. Only the assignee may - a trainer can't self-mark it. */
-export function markDone(id: string, assigneeId: string): MutateResult {
+/**
+ * Set an assignment's status. Only the ASSIGNEE may - a trainer marking work
+ * done for someone would make the roster's completion counts meaningless.
+ *
+ * Both directions, deliberately. Completion used to be one-way: a student who
+ * ticked the wrong row, or who marked a module done and then found they had
+ * more to do, had no way back and their trainer's progress count was wrong
+ * with no way to correct it. Reopening clears completedAt rather than keeping
+ * a stale timestamp on a row that is no longer done.
+ */
+export function setStatus(id: string, assigneeId: string, status: AssignmentStatus): MutateResult {
   const a = getAssignment(id);
   if (!a) return { ok: false, error: "not_found" };
   if (a.assigneeId !== clamp(assigneeId, ID_MAX)) return { ok: false, error: "forbidden" };
-  if (a.status !== "done") {
-    a.status = "done";
-    a.completedAt = Date.now();
+  if (a.status !== status) {
+    a.status = status;
+    a.completedAt = status === "done" ? Date.now() : null;
     persist();
   }
   return { ok: true, assignment: a };
+}
+
+/** Complete an assignment. Thin alias kept for existing callers. */
+export function markDone(id: string, assigneeId: string): MutateResult {
+  return setStatus(id, assigneeId, "done");
 }
 
 /** Take an assignment back. Only whoever assigned it, or any admin. */

@@ -14,11 +14,13 @@ import {
   listAssignmentsBy,
   listAssignmentsFor,
   markDone,
+  resolveParts,
   resolveRef,
+  setStatus,
   unassign,
 } from "./assignments";
 import { createDeck } from "./decks";
-import { __resetModules, createModule } from "./modules";
+import { __resetModules, createModule, updateModule } from "./modules";
 import { createQuiz } from "./quizzes";
 
 const CHAPTER = "Toronto Central";
@@ -26,7 +28,7 @@ const TRAINER = { id: "t_1", name: "Coach Rivera" };
 const STUDENT = "s_ada";
 
 /** A trainer assigning `refId` of `kind` to a student in their chapter. */
-const assign = (kind: string, refId: string, assigneeId = STUDENT, extra: { dueAt?: unknown; by?: string } = {}) =>
+const assign = (kind: string, refId: string, assigneeId = STUDENT, extra: { dueAt?: unknown; by?: string; parts?: unknown } = {}) =>
   createAssignment({
     kind,
     refId,
@@ -35,6 +37,7 @@ const assign = (kind: string, refId: string, assigneeId = STUDENT, extra: { dueA
     assignedByName: TRAINER.name,
     chapter: CHAPTER,
     dueAt: extra.dueAt,
+    parts: extra.parts,
   });
 
 let moduleId = "";
@@ -239,5 +242,121 @@ describe("completionStats", () => {
       s_liam: { assigned: 1, done: 0 },
       s_never_assigned: { assigned: 0, done: 0 },
     });
+  });
+});
+
+// --- parts: assigning only some sections of a module ---------------------
+// Absent `parts` has to keep meaning "the whole module", because every
+// assignment made before the field existed has no parts and means exactly that.
+
+/** A module whose sections we know by id, for narrowing. */
+function threeSectionModule(): string {
+  const id = createModule("EMT Fundamentals", TRAINER.id).id;
+  updateModule(id, {
+    sections: [
+      { id: "sec1", title: "Scene safety", subsections: [{ id: "ss1", title: "Part 1", blocks: [] }] },
+      { id: "sec2", title: "Patient assessment", subsections: [{ id: "ss2", title: "Part 1", blocks: [] }] },
+      { id: "sec3", title: "Vital signs", subsections: [{ id: "ss3", title: "Part 1", blocks: [] }] },
+    ],
+  });
+  return id;
+}
+
+describe("resolveParts", () => {
+  it("reads titles off the module, in the module's own order", () => {
+    const id = threeSectionModule();
+    // Ticked out of order; stored in reading order.
+    expect(resolveParts(id, ["sec3", "sec1"])).toEqual([
+      { id: "sec1", title: "Scene safety" },
+      { id: "sec3", title: "Vital signs" },
+    ]);
+  });
+
+  it("treats every section as the whole module, not as a parts list", () => {
+    const id = threeSectionModule();
+    expect(resolveParts(id, ["sec1", "sec2", "sec3"])).toBeNull();
+  });
+
+  it("refuses a stale id rather than quietly assigning less", () => {
+    const id = threeSectionModule();
+    expect(resolveParts(id, ["sec1", "sec-removed"])).toBeNull();
+  });
+
+  it("is null for an empty list and an unknown module", () => {
+    expect(resolveParts(threeSectionModule(), [])).toBeNull();
+    expect(resolveParts("nope", ["sec1"])).toBeNull();
+  });
+});
+
+describe("createAssignment with parts", () => {
+  it("stores the narrowed sections", async () => {
+    const id = threeSectionModule();
+    const res = await assign("module", id, STUDENT, { parts: ["sec2"] });
+    expect(res.ok && res.assignment.parts).toEqual([{ id: "sec2", title: "Patient assessment" }]);
+  });
+
+  it("leaves parts absent when the whole module is assigned", async () => {
+    const id = threeSectionModule();
+    const res = await assign("module", id);
+    expect(res.ok && "parts" in res.assignment).toBe(false);
+  });
+
+  it("refuses parts that do not resolve", async () => {
+    const id = threeSectionModule();
+    const res = await assign("module", id, STUDENT, { parts: ["ghost"] });
+    expect(res).toEqual({ ok: false, error: "bad_parts" });
+  });
+
+  it("does not treat different sections of one module as duplicates", async () => {
+    const id = threeSectionModule();
+    const a = await assign("module", id, STUDENT, { parts: ["sec1"] });
+    const b = await assign("module", id, STUDENT, { parts: ["sec2"] });
+    expect(a.ok && b.ok && b.duplicate).toBe(false);
+    expect(listAssignmentsFor(STUDENT)).toHaveLength(2);
+  });
+
+  it("still collapses a repeat of the SAME sections", async () => {
+    const id = threeSectionModule();
+    await assign("module", id, STUDENT, { parts: ["sec1"] });
+    const again = await assign("module", id, STUDENT, { parts: ["sec1"] });
+    expect(again.ok && again.duplicate).toBe(true);
+    expect(listAssignmentsFor(STUDENT)).toHaveLength(1);
+  });
+
+  it("ignores parts on kinds that have no sections", async () => {
+    const deck = createDeck("Terms", [{ front: "a", back: "b" }], TRAINER.id).id;
+    const res = await assign("deck", deck, STUDENT, { parts: ["sec1"] });
+    expect(res.ok && "parts" in res.assignment).toBe(false);
+  });
+});
+
+describe("setStatus", () => {
+  it("reopens a completed assignment and clears completedAt", async () => {
+    const res = await assign("module", moduleId);
+    const id = (res as { assignment: { id: string } }).assignment.id;
+
+    expect(setStatus(id, STUDENT, "done").ok).toBe(true);
+    expect(getAssignment(id)?.status).toBe("done");
+    expect(typeof getAssignment(id)?.completedAt).toBe("number");
+
+    expect(setStatus(id, STUDENT, "todo").ok).toBe(true);
+    expect(getAssignment(id)?.status).toBe("todo");
+    // Not a stale timestamp on a row that is no longer done.
+    expect(getAssignment(id)?.completedAt).toBeNull();
+  });
+
+  it("still lets only the assignee change it", async () => {
+    const res = await assign("module", moduleId);
+    const id = (res as { assignment: { id: string } }).assignment.id;
+    expect(setStatus(id, TRAINER.id, "done")).toEqual({ ok: false, error: "forbidden" });
+  });
+
+  it("keeps a reopened assignment out of the done count", async () => {
+    const res = await assign("module", moduleId);
+    const id = (res as { assignment: { id: string } }).assignment.id;
+    setStatus(id, STUDENT, "done");
+    expect(completionStats([STUDENT])[STUDENT]?.done).toBe(1);
+    setStatus(id, STUDENT, "todo");
+    expect(completionStats([STUDENT])[STUDENT]?.done).toBe(0);
   });
 });
